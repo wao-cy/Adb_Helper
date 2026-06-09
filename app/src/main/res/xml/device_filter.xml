@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Add specific USB device filters here if needed -->
+    <!-- Example:
+    <usb-device vendor-id="1234" product-id="5678" />
+    -->
+</resources>

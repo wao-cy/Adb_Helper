@@ -1,0 +1,28 @@
+# Gradle
+.gradle/
+build/
+
+# Android
+*.apk
+*.aab
+*.ap_
+app/build/
+app/release/
+app/debug/
+app/.cxx/
+
+# IntelliJ / Android Studio
+*.iml
+.idea/
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local / IDE config
+.claude/
+CLAUDE.md
+
+# Native libs (pre-built binaries, large files)
+app/src/main/jniLibs/

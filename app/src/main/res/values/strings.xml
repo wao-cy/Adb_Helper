@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ADB 助手</string>
+
+    <!-- 底部导航 -->
+    <string name="home">首页</string>
+    <string name="device">设备</string>
+    <string name="shell">终端</string>
+    <string name="scripts">脚本</string>
+    <string name="settings">设置</string>
+    <string name="about">关于</string>
+
+    <!-- 通用操作 -->
+    <string name="connect">连接</string>
+    <string name="disconnect">断开</string>
+    <string name="refresh">刷新</string>
+    <string name="cancel">取消</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="execute">执行</string>
+    <string name="edit">编辑</string>
+    <string name="add">添加</string>
+    <string name="close">关闭</string>
+    <string name="ok">确定</string>
+    <string name="create">创建</string>
+    <string name="back">返回</string>
+    <string name="clear">清空</string>
+    <string name="remove">移除</string>
+
+    <!-- 状态 -->
+    <string name="error">错误</string>
+    <string name="success">成功</string>
+    <string name="loading">加载中…</string>
+    <string name="running">运行中</string>
+    <string name="stopped">已停止</string>
+    <string name="starting">启动中…</string>
+    <string name="stopping">停止中…</string>
+    <string name="restart">重启</string>
+    <string name="restarting">重启中…</string>
+    <string name="connected">已连接</string>
+    <string name="offline">离线</string>
+    <string name="unauthorized">未授权</string>
+    <string name="unknown">未知</string>
+    <string name="executing">执行中…</string>
+    <string name="root">Root</string>
+
+    <!-- 首页 -->
+    <string name="adb_server">ADB 服务器</string>
+    <string name="connected_devices">已连接设备</string>
+    <string name="no_devices">没有连接的设备</string>
+    <string name="connect_hint">通过 USB 连接或点击 + 无线连接</string>
+    <string name="connect_device">连接设备</string>
+    <string name="please_select_device">请先选择一个已连接的设备</string>
+    <string name="ip_address">IP 地址</string>
+    <string name="port">端口</string>
+    <string name="unauthorized_hint">未授权 - 请检查设备</string>
+
+    <!-- 设备信息 -->
+    <string name="device_info">设备信息</string>
+    <string name="device_properties">设备属性</string>
+    <string name="battery">电池</string>
+    <string name="display">显示</string>
+    <string name="storage">存储</string>
+    <string name="quick_actions">快捷操作</string>
+    <string name="screenshot">截屏</string>
+    <string name="reboot">重启</string>
+    <string name="clear_cache">清除缓存</string>
+    <string name="screenshot_saved">截屏已保存到：</string>
+    <string name="app_manager">应用管理</string>
+    <string name="device_connection_failed">设备连接失败</string>
+    <string name="retry">重试</string>
+
+    <!-- 电池属性 -->
+    <string name="battery_level">电量</string>
+    <string name="battery_status">状态</string>
+    <string name="battery_health">健康度</string>
+    <string name="battery_temperature">温度</string>
+    <string name="battery_voltage">电压</string>
+
+    <!-- 显示属性 -->
+    <string name="screen_size">屏幕尺寸</string>
+    <string name="screen_density">屏幕密度</string>
+    <string name="resolution">分辨率</string>
+
+    <!-- 存储属性 -->
+    <string name="internal_storage">内部存储</string>
+    <string name="external_storage">外部存储</string>
+
+    <!-- 内存属性 -->
+    <string name="memory">内存</string>
+    <string name="total_ram">运行内存</string>
+    <string name="available_ram">可用内存</string>
+
+    <!-- 终端 -->
+    <string name="enter_command">输入命令…</string>
+    <string name="quick_commands">快捷命令</string>
+
+    <!-- 脚本 -->
+    <string name="no_scripts">还没有脚本</string>
+    <string name="tap_to_create">点击 + 创建新脚本</string>
+    <string name="new_script">新建脚本</string>
+    <string name="edit_script">编辑脚本</string>
+    <string name="script_name">脚本名称</string>
+    <string name="description">描述</string>
+    <string name="category">分类</string>
+    <string name="commands">命令列表</string>
+    <string name="variables">变量</string>
+    <string name="add_variable">添加变量</string>
+    <string name="add_command">添加命令</string>
+    <string name="adb_command">ADB 命令</string>
+    <string name="timeout">超时时间</string>
+    <string name="timeout_seconds">超时（秒）</string>
+    <string name="ignore_errors">遇错退出</string>
+    <string name="no_commands">暂无命令，点击 + 添加</string>
+    <string name="move_up">上移</string>
+    <string name="move_down">下移</string>
+    <string name="load_templates">加载模板</string>
+    <string name="more_options">更多选项</string>
+    <string name="commands_count">%d 条命令</string>
+    <string name="executing_script">执行中：%s</string>
+    <string name="step_progress">步骤 %1$d/%2$d</string>
+    <string name="completed_successfully">执行成功</string>
+    <string name="failed">执行失败</string>
+    <string name="commands_executed">已执行 %d 条命令</string>
+
+    <!-- 设置 -->
+    <string name="adb_settings">ADB 设置</string>
+    <string name="keep_screen_on">保持屏幕常亮</string>
+    <string name="local_save_path">本地保存路径</string>
+    <string name="local_save_path_hint">例如: /sdcard/ADB助手</string>
+    <string name="select_folder">选择文件夹</string>
+    <string name="appearance">外观</string>
+    <string name="dark_mode">深色模式</string>
+    <string name="storage_management">存储管理</string>
+    <string name="cache_size">缓存大小</string>
+    <string name="clear_app_cache">清除应用缓存</string>
+    <string name="confirm_clear_cache">确认清除缓存</string>
+    <string name="confirm_clear_cache_msg">确定要清除本应用的所有缓存数据吗？</string>
+    <string name="cache_cleared">缓存已清除</string>
+
+    <!-- 关于 -->
+    <string name="version">版本 %s</string>
+    <string name="about_description">ADB 助手是一款强大的 Android 调试工具，提供友好的界面来执行 ADB 命令、管理脚本和控制设备。</string>
+    <string name="features">功能特性</string>
+    <string name="feature_adb_server">ADB 服务器管理</string>
+    <string name="feature_device_connect">设备连接（USB/无线）</string>
+    <string name="feature_shell">Shell 命令执行</string>
+    <string name="feature_package">包管理</string>
+    <string name="feature_screen">截屏与输入模拟</string>
+    <string name="feature_script">脚本管理与执行</string>
+    <string name="feature_device_info">设备信息显示</string>
+    <string name="feature_file">文件操作</string>
+    <string name="credits_adbtool">基于Vibe Coding开发,作者邮箱:wao.cy@qq.com</string>
+    <string name="credits_compose">使用 Jetpack Compose 构建</string>
+    <string name="press_back_again_to_exit">再按一次返回键退出应用</string>
+
+    <!-- 无线调试配对 -->
+    <string name="wireless_debugging">无线调试</string>
+    <string name="pair">配对</string>
+    <string name="pair_instructions">在设备上打开「开发者选项 > 无线调试 > 使用配对码配对设备」，然后输入下方显示的 IP 地址和端口及配对码。</string>
+    <string name="pair_ip_port">IP地址和端口</string>
+    <string name="pairing_code">配对码</string>
+    <string name="pair_success">配对成功！现在可以连接设备了。</string>
+    <string name="connect_instructions">Android 11 及以上设备首次无线连接需先配对,配对成功后再进行连接</string>
+    <string name="scan_lan">扫描</string>
+    <string name="lan_devices">局域网设备</string>
+    <string name="scanning">正在扫描局域网…</string>
+    <string name="no_lan_devices">未发现可连接设备</string>
+    <string name="history">历史记录</string>
+    <string name="pair_failed">配对失败</string>
+    <string name="connect_success">连接成功</string>
+    <string name="connecting">连接中…</string>
+
+    <!-- 应用管理 -->
+    <string name="search_packages">搜索包名…</string>
+    <string name="filter_all">全部</string>
+    <string name="filter_third_party">第三方</string>
+    <string name="filter_system">系统</string>
+    <string name="apps_count">共 %d 个应用</string>
+    <string name="loading_apps">正在加载应用列表…</string>
+    <string name="loading_app_names">正在获取应用名…</string>
+    <string name="no_apps_found">未找到应用</string>
+    <string name="action_launch">启动</string>
+    <string name="action_app_info">应用信息</string>
+    <string name="action_force_stop">强制停止</string>
+    <string name="action_clear_data">清除数据</string>
+    <string name="action_uninstall">卸载</string>
+    <string name="action_download_apk">下载 APK</string>
+    <string name="action_push_apk">推送 APK</string>
+    <string name="action_disable">禁用</string>
+    <string name="action_enable">启用</string>
+    <string name="copy_package_name">复制包名</string>
+    <string name="copy_apk_path">复制路径</string>
+
+    <!-- 应用详情 -->
+    <string name="detail_package_name">包名</string>
+    <string name="detail_version">版本号</string>
+    <string name="detail_apk_size">安装包大小</string>
+    <string name="detail_min_sdk">兼容 SDK 版本</string>
+    <string name="detail_target_sdk">目标 SDK 版本</string>
+    <string name="detail_first_install">首次安装时间</string>
+    <string name="detail_last_update">上次更新时间</string>
+    <string name="detail_launch_activity">启动活动</string>
+    <string name="confirm_force_stop">确认强制停止</string>
+    <string name="confirm_clear_data">确认清除数据</string>
+    <string name="confirm_uninstall">确认卸载</string>
+    <string name="confirm_disable">确认禁用</string>
+    <string name="confirm_force_stop_msg">确定要强制停止 %s 吗？</string>
+    <string name="confirm_clear_data_msg">确定要清除 %s 的所有数据吗？此操作不可撤销。</string>
+    <string name="confirm_uninstall_msg">确定要卸载 %s 吗？此操作不可撤销。</string>
+    <string name="confirm_disable_msg">确定要禁用 %s 吗？禁用后应用图标将消失，可通过启用恢复。</string>
+    <string name="push_apk_title">推送 APK</string>
+    <string name="push_select_local_file">选择本地文件</string>
+    <string name="push_select_installed_app">从已安装应用选择</string>
+    <string name="push_description">选择要推送到设备并安装的 APK 文件</string>
+    <string name="pushing">正在推送…</string>
+    <string name="select_local_app">选择本地应用</string>
+    <string name="search_local_apps">搜索本地应用…</string>
+    <string name="no_local_apps">未找到应用</string>
+    <string name="transfer_pushing">正在推送</string>
+    <string name="transfer_pulling">正在下载</string>
+    <string name="transfer_failed">传输失败</string>
+    <string name="transfer_installing">正在安装…</string>
+    <string name="transfer_loading">传输中…</string>
+    <string name="transfer_percent">%1$d%%</string>
+    <string name="transfer_speed">速度: %s</string>
+    <string name="transfer_size">%1$s / %2$s</string>
+    <string name="permission_limited">应用列表权限受限</string>
+    <string name="permission_limited_msg">当前只能看到本应用自身，无法获取完整的已安装应用列表。\n\n请在系统设置中授予「获取应用列表」或「读取应用列表」权限。</string>
+    <string name="go_to_settings">前往设置</string>
+</resources>
