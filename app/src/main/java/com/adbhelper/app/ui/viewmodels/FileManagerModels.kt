@@ -28,7 +28,7 @@ data class FileManagerState(
     val showHidden: Boolean = false,
     val error: String? = null,
     val message: String? = null,
-    // 选中与操作
+    // 详情/操作 (单文件)
     val selectedFile: RemoteFile? = null,
     val showFileDetail: Boolean = false,
     val showFileViewer: Boolean = false,
@@ -37,8 +37,12 @@ data class FileManagerState(
     val showRenameDialog: Boolean = false,
     val showNewFolderDialog: Boolean = false,
     val showDeleteConfirm: Boolean = false,
-    // 剪贴板
-    val clipboardFile: RemoteFile? = null,
+    // 多选
+    val isMultiSelectMode: Boolean = false,
+    val selectedPaths: Set<String> = emptySet(),
+    val showBatchDeleteConfirm: Boolean = false,
+    // 剪贴板（支持多文件）
+    val clipboardFiles: List<RemoteFile> = emptyList(),
     val clipboardMode: ClipboardMode? = null,
     // 传输
     val transferState: TransferState? = null

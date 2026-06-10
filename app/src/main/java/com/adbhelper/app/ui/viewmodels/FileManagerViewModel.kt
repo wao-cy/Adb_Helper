@@ -1,15 +1,21 @@
 package com.adbhelper.app.ui.viewmodels
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adbhelper.app.core.adb.AdbManager
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.adbhelper.app.core.adb.DeviceSession
 import com.adbhelper.app.core.shell.ShellExecutor
+import com.adbhelper.app.core.shell.ShellResult
 import com.adbhelper.app.core.shell.TransferHelper
+import com.adbhelper.app.core.shell.TransferProgress
+import com.adbhelper.app.core.shell.LsOutputParser
 import com.adbhelper.app.data.repositories.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -18,6 +24,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class FileManagerViewModel @Inject constructor(
+    @param:ApplicationContext private val context: Context,
     private val shellExecutor: ShellExecutor,
     private val transferHelper: TransferHelper,
     private val settingsRepository: SettingsRepository,
@@ -29,6 +36,7 @@ class FileManagerViewModel @Inject constructor(
     val uiState: StateFlow<FileManagerState> = _uiState.asStateFlow()
 
     private var transferJob: Job? = null
+    private var downloadJob: Job? = null
 
     /** 按设备 serial 缓存 root 状态，避免多设备间相互影响 */
     private val rootCache = mutableMapOf<String, Boolean>()
@@ -62,12 +70,15 @@ class FileManagerViewModel @Inject constructor(
                 // 尾部加 / 确保符号链接（如 /sdcard）能列出实际目录内容
                 val lsPath = if (path.endsWith("/")) path else "$path/"
                 val output = execShell("ls -la \"$lsPath\"").output
-                val files = parseLsOutput(output, path)
+                val files = LsOutputParser.parse(output, path).toMutableList()
+                LsOutputParser.resolveSymlinkTypes(files) { execShell(it) }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     currentPath = path,
                     files = files,
-                    selectedFile = null
+                    selectedFile = null,
+                    isMultiSelectMode = false,
+                    selectedPaths = emptySet()
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -118,11 +129,48 @@ class FileManagerViewModel @Inject constructor(
         return navigable + files
     }
 
-    // ========== 选中与详情 ==========
+    // ========== 多选 ==========
 
-    fun selectFile(file: RemoteFile?) {
-        _uiState.value = _uiState.value.copy(selectedFile = file)
+    /** 进入多选模式并选中首个文件 */
+    fun enterMultiSelect(file: RemoteFile) {
+        _uiState.value = _uiState.value.copy(
+            isMultiSelectMode = true,
+            selectedPaths = setOf(file.path)
+        )
     }
+
+    /** 在多选模式下切换单个文件选中状态 */
+    fun toggleSelection(file: RemoteFile) {
+        val current = _uiState.value.selectedPaths.toMutableSet()
+        if (file.path in current) current.remove(file.path) else current.add(file.path)
+        _uiState.value = _uiState.value.copy(selectedPaths = current)
+    }
+
+    /** 退出多选模式 */
+    fun exitMultiSelect() {
+        _uiState.value = _uiState.value.copy(
+            isMultiSelectMode = false,
+            selectedPaths = emptySet()
+        )
+    }
+
+    /** 全选当前可见文件 */
+    fun selectAll() {
+        val allPaths = getDisplayFiles().map { it.path }.toSet()
+        _uiState.value = _uiState.value.copy(selectedPaths = allPaths)
+    }
+
+    /** 取消全选 */
+    fun deselectAll() {
+        _uiState.value = _uiState.value.copy(selectedPaths = emptySet())
+    }
+
+    private fun getSelectedFiles(): List<RemoteFile> {
+        val selectedPaths = _uiState.value.selectedPaths
+        return getDisplayFiles().filter { it.path in selectedPaths }
+    }
+
+    // ========== 单文件详情 ==========
 
     fun showFileDetail(file: RemoteFile) {
         _uiState.value = _uiState.value.copy(selectedFile = file, showFileDetail = true)
@@ -153,6 +201,39 @@ class FileManagerViewModel @Inject constructor(
                 loadFiles()
             } catch (e: Exception) {
                 showMessage("删除失败: ${e.message}")
+            }
+        }
+    }
+
+    // ========== 批量删除 ==========
+
+    fun confirmBatchDelete() {
+        _uiState.value = _uiState.value.copy(showBatchDeleteConfirm = true)
+    }
+
+    fun dismissBatchDeleteConfirm() {
+        _uiState.value = _uiState.value.copy(showBatchDeleteConfirm = false)
+    }
+
+    fun batchDelete() {
+        val files = getSelectedFiles()
+        if (files.isEmpty()) return
+        _uiState.value = _uiState.value.copy(showBatchDeleteConfirm = false)
+        viewModelScope.launch {
+            try {
+                var success = 0; var fail = 0
+                for (file in files) {
+                    try {
+                        val cmd = if (file.isDirectory) "rm -rf \"${file.path}\"" else "rm \"${file.path}\""
+                        execShell(cmd)
+                        success++
+                    } catch (_: Exception) { fail++ }
+                }
+                showMessage("删除完成: $success 成功, $fail 失败")
+                exitMultiSelect()
+                loadFiles()
+            } catch (e: Exception) {
+                showMessage("批量删除失败: ${e.message}")
             }
         }
     }
@@ -205,71 +286,98 @@ class FileManagerViewModel @Inject constructor(
 
     // ========== 复制/剪切/粘贴 ==========
 
-    fun copyToClipboard() {
-        val file = _uiState.value.selectedFile ?: return
+    fun clearClipboard() {
+        _uiState.value = _uiState.value.copy(clipboardFiles = emptyList(), clipboardMode = null)
+    }
+
+    /** 将多选的文件复制到剪贴板 */
+    fun copySelectedToClipboard() {
+        val files = getSelectedFiles()
+        if (files.isEmpty()) return
         _uiState.value = _uiState.value.copy(
-            clipboardFile = file,
+            clipboardFiles = files,
             clipboardMode = ClipboardMode.COPY,
-            selectedFile = null,
-            showFileDetail = false
+            isMultiSelectMode = false,
+            selectedPaths = emptySet()
         )
-        showMessage("已复制: ${file.name}")
+        showMessage("已复制 ${files.size} 个文件")
     }
 
-    fun cutToClipboard() {
-        val file = _uiState.value.selectedFile ?: return
+    /** 将多选的文件剪切到剪贴板 */
+    fun cutSelectedToClipboard() {
+        val files = getSelectedFiles()
+        if (files.isEmpty()) return
         _uiState.value = _uiState.value.copy(
-            clipboardFile = file,
+            clipboardFiles = files,
             clipboardMode = ClipboardMode.CUT,
-            selectedFile = null,
-            showFileDetail = false
+            isMultiSelectMode = false,
+            selectedPaths = emptySet()
         )
-        showMessage("已剪切: ${file.name}")
+        showMessage("已剪切 ${files.size} 个文件")
     }
 
+    /** 粘贴剪贴板中的所有文件 */
     fun paste() {
-        val clipFile = _uiState.value.clipboardFile ?: return
+        val clipFiles = _uiState.value.clipboardFiles
+        if (clipFiles.isEmpty()) return
         val mode = _uiState.value.clipboardMode ?: return
         val destDir = _uiState.value.currentPath
 
-        // 防止粘贴到自身目录内：目标路径是源路径的子目录
-        val normalizedSource = clipFile.path.trimEnd('/')
-        val normalizedDest = destDir.trimEnd('/')
-        if (clipFile.isDirectory
-            && (normalizedDest == normalizedSource || normalizedDest.startsWith("$normalizedSource/"))) {
-            showMessage("不能粘贴到自身目录内")
-            return
-        }
-
-        // 同目录复制时自动加后缀，避免 cp "a" "a" 失败
-        val sameDir = mode == ClipboardMode.COPY
-                && normalizedDest == clipFile.path.substringBeforeLast('/').trimEnd('/')
-
         viewModelScope.launch {
             try {
-                val destPath = if (sameDir) {
-                    generateCopyName(destDir, clipFile.name, clipFile.isDirectory)
-                } else {
-                    "$destDir/${clipFile.name}"
+                var success = 0; var fail = 0
+                for (clipFile in clipFiles) {
+                    try {
+                        pasteSingleFile(clipFile, mode, destDir)
+                        success++
+                    } catch (_: Exception) { fail++ }
                 }
-                when (mode) {
-                    ClipboardMode.COPY -> {
-                        val cmd = if (clipFile.isDirectory) "cp -r \"${clipFile.path}\" \"$destPath\""
-                        else "cp \"${clipFile.path}\" \"$destPath\""
-                        execShell(cmd)
-                        showMessage("已粘贴: ${File(destPath).name}")
-                    }
-                    ClipboardMode.CUT -> {
-                        execShell("mv \"${clipFile.path}\" \"$destPath\"")
-                        showMessage("已移动: ${clipFile.name}")
-                    }
-                }
-                _uiState.value = _uiState.value.copy(clipboardFile = null, clipboardMode = null)
+                _uiState.value = _uiState.value.copy(clipboardFiles = emptyList(), clipboardMode = null)
+                showMessage("粘贴完成: $success 成功${if (fail > 0) ", $fail 失败" else ""}")
                 loadFiles()
             } catch (e: Exception) {
                 showMessage("粘贴失败: ${e.message}")
             }
         }
+    }
+
+    private suspend fun pasteSingleFile(clipFile: RemoteFile, mode: ClipboardMode, destDir: String) {
+        val normalizedSource = clipFile.path.trimEnd('/')
+        val normalizedDest = destDir.trimEnd('/')
+
+        // 防止粘贴到自身目录内
+        if (clipFile.isDirectory
+            && (normalizedDest == normalizedSource || normalizedDest.startsWith("$normalizedSource/"))) {
+            return
+        }
+
+        val sameDir = mode == ClipboardMode.COPY
+                && normalizedDest == clipFile.path.substringBeforeLast('/').trimEnd('/')
+
+        val destPath = if (sameDir) {
+            generateCopyName(destDir, clipFile.name, clipFile.isDirectory)
+        } else {
+            checkRemoteNameConflict(destDir, clipFile.name)
+        }
+
+        when (mode) {
+            ClipboardMode.COPY -> {
+                val cmd = if (clipFile.isDirectory) "cp -r \"${clipFile.path}\" \"$destPath\""
+                else "cp \"${clipFile.path}\" \"$destPath\""
+                execShell(cmd)
+            }
+            ClipboardMode.CUT -> {
+                execShell("mv \"${clipFile.path}\" \"$destPath\"")
+            }
+        }
+    }
+
+    /** 目标目录重名检测，自动加 (copy) 后缀 */
+    private suspend fun checkRemoteNameConflict(dir: String, name: String): String {
+        val existing = try {
+            execShell("ls \"$dir\"").output.lines().map { it.trim() }.toSet()
+        } catch (_: Exception) { emptySet() }
+        return if (name in existing) generateCopyName(dir, name, false) else "$dir/$name"
     }
 
     /**
@@ -407,14 +515,11 @@ class FileManagerViewModel @Inject constructor(
                 val localDir = settingsRepository.localSavePathFlow.value
                 File(localDir).mkdirs()
                 val localPath = generateUniqueLocalPath(localDir, file.name)
-
                 transferHelper.pullStreaming(file.path, localPath, serial) { progress ->
                     _uiState.value = _uiState.value.copy(
                         transferState = _uiState.value.transferState?.copy(progress = progress)
                     )
                 }
-
-                val success = _uiState.value.transferState?.progress?.error == null
                 _uiState.value = _uiState.value.copy(
                     transferState = _uiState.value.transferState?.copy(resultMessage = "已下载到:\n$localPath")
                 )
@@ -423,6 +528,57 @@ class FileManagerViewModel @Inject constructor(
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     transferState = _uiState.value.transferState?.copy(resultMessage = "下载失败: ${e.message}", isError = true)
+                )
+            }
+        }
+    }
+
+    /** 批量下载选中的文件（跳过目录） */
+    fun downloadSelectedFiles() {
+        val files = getSelectedFiles().filter { !it.isDirectory }
+        if (files.isEmpty()) {
+            showMessage(if (getSelectedFiles().all { it.isDirectory }) "暂不支持下载文件夹" else "没有可下载的文件")
+            return
+        }
+        downloadJob?.cancel()
+        val total = files.size
+        _uiState.value = _uiState.value.copy(
+            transferState = TransferState(direction = TransferDirection.PULL, fileName = files[0].name, fileSize = 0)
+        )
+        downloadJob = viewModelScope.launch {
+            try {
+                val serial = deviceSession.selectedSerial.value
+                val localDir = settingsRepository.localSavePathFlow.value
+                File(localDir).mkdirs()
+
+                for ((index, file) in files.withIndex()) {
+                    if (!isActive) break
+                    val localPath = generateUniqueLocalPath(localDir, file.name)
+                    _uiState.value = _uiState.value.copy(
+                        transferState = _uiState.value.transferState?.copy(
+                            fileName = "[$index/$total] ${file.name}",
+                            progress = TransferProgress(percent = 0, total = file.size)
+                        )
+                    )
+                    transferHelper.pullStreaming(file.path, localPath, serial) { progress ->
+                        _uiState.value = _uiState.value.copy(
+                            transferState = _uiState.value.transferState?.copy(progress = progress)
+                        )
+                    }
+                }
+                exitMultiSelect()
+                _uiState.value = _uiState.value.copy(
+                    transferState = _uiState.value.transferState?.copy(
+                        resultMessage = "已下载 $total 个文件到:\n$localDir"
+                    )
+                )
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                _uiState.value = _uiState.value.copy(transferState = null)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    transferState = _uiState.value.transferState?.copy(
+                        resultMessage = "下载失败: ${e.message}", isError = true
+                    )
                 )
             }
         }
@@ -475,6 +631,8 @@ class FileManagerViewModel @Inject constructor(
     fun cancelTransfer() {
         transferJob?.cancel()
         transferJob = null
+        downloadJob?.cancel()
+        downloadJob = null
         _uiState.value = _uiState.value.copy(transferState = null)
     }
 
@@ -486,117 +644,5 @@ class FileManagerViewModel @Inject constructor(
 
     private fun showMessage(msg: String) {
         _uiState.value = _uiState.value.copy(message = msg)
-    }
-
-    // ========== ls 解析 ==========
-
-    private suspend fun parseLsOutput(output: String, basePath: String): List<RemoteFile> {
-        val files = mutableListOf<RemoteFile>()
-        // 权限首字符：d=目录, l=符号链接, -=文件
-        val regex = Regex(
-            """^([dl\-][rwxsSt\-]{9})\s+(\d+)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}|\w{3}\s+\d+\s+[\d:]+)\s+(.+)$"""
-        )
-
-        for (line in output.lines()) {
-            val trimmed = line.trim()
-            if (trimmed.isBlank()) continue
-            if (trimmed.startsWith("total")) continue
-
-            val match = regex.find(trimmed) ?: continue
-            val perms = match.groupValues[1]
-            val owner = match.groupValues[3]
-            val group = match.groupValues[4]
-            val size = match.groupValues[5].toLongOrNull() ?: 0
-            val date = match.groupValues[6]
-            val rawName = match.groupValues[7].trim()
-
-            // 符号链接：解析 "name -> target"
-            val isLink = perms.startsWith("l")
-            val name: String
-            val linkTarget: String?
-            if (isLink) {
-                val arrowIdx = rawName.indexOf(" -> ")
-                if (arrowIdx >= 0) {
-                    name = rawName.substring(0, arrowIdx).trim()
-                    linkTarget = rawName.substring(arrowIdx + 4).trim()
-                } else {
-                    name = rawName.trim()
-                    linkTarget = null
-                }
-            } else {
-                name = rawName.trim()
-                linkTarget = null
-            }
-
-            // 跳过 . 和 ..
-            if (name == "." || name == "..") continue
-
-            val isDir = perms.startsWith("d")
-            val fullPath = "${basePath.trimEnd('/')}/$name"
-
-            files.add(
-                RemoteFile(
-                    name = name,
-                    path = fullPath,
-                    isDirectory = isDir,
-                    size = size,
-                    permissions = perms.substring(1),
-                    owner = owner,
-                    group = group,
-                    modifiedDate = date,
-                    isHidden = name.startsWith("."),
-                    isSymlink = isLink,
-                    linkTarget = linkTarget
-                )
-            )
-        }
-
-        // 批量解析符号链接目标是否为目录
-        resolveSymlinkTypes(files)
-        return files
-    }
-
-    /**
-     * 批量判断符号链接目标是文件还是目录。
-     * 用一条 shell 命令批量 stat 所有链接，避免逐个执行的开销。
-     * 对于无权限的链接，默认视为目录（可导航）。
-     */
-    private suspend fun resolveSymlinkTypes(files: MutableList<RemoteFile>) {
-        val symlinks = files.filter { it.isSymlink && it.linkTarget != null }
-        if (symlinks.isEmpty()) return
-
-        try {
-            // 用 stat -c '%F' 批量查询链接目标类型
-            val paths = symlinks.joinToString(" ") { "\"${it.path}\"" }
-            val output = execShell("stat -c '%F' $paths 2>/dev/null").output
-            val types = output.lines().map { it.trim().lowercase() }
-
-            symlinks.forEachIndexed { index, symlink ->
-                if (index < types.size) {
-                    val type = types[index]
-                    val targetIsDir = type.contains("directory")
-                    // 替换为已解析类型的副本
-                    val i = files.indexOf(symlink)
-                    if (i >= 0) {
-                        files[i] = symlink.copy(isDirectory = targetIsDir)
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            // stat 失败时，根据常见目录路径做启发式判断
-            val knownDirPrefixes = listOf(
-                "/system/", "/product/", "/vendor/", "/data/", "/storage/",
-                "/mnt/", "/proc/", "/sys/", "/dev/"
-            )
-            val knownFileExts = listOf(".txt", ".conf", ".rc", ".xml", ".json", ".prop", ".cfg")
-            for (symlink in symlinks) {
-                val target = symlink.linkTarget ?: continue
-                val isLikelyDir = knownDirPrefixes.any { target.startsWith(it) && !knownFileExts.any { ext -> target.endsWith(ext) } }
-                val i = files.indexOf(symlink)
-                if (i >= 0) {
-                    files[i] = symlink.copy(isDirectory = isLikelyDir)
-                }
-            }
-        }
     }
 }

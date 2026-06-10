@@ -1,5 +1,6 @@
 package com.adbhelper.app.core.script
 
+import com.adbhelper.app.core.shell.ShellResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 
@@ -18,7 +19,11 @@ class SpecialCommandContext(
     /** 等待用户输入，返回输入值 */
     val awaitInput: suspend (CompletableDeferred<String>) -> String,
     /** 等待用户确认 */
-    val awaitConfirm: suspend (CompletableDeferred<Unit>) -> Unit
+    val awaitConfirm: suspend (CompletableDeferred<Unit>) -> Unit,
+    /** 跳转到指定标签，返回标签是否存在 */
+    val jumpTo: (String) -> Boolean,
+    /** 执行 shell 命令（用于 capture / if 内部调用） */
+    val executeShell: suspend (String, String?) -> ShellResult
 )
 
 /**
@@ -139,120 +144,13 @@ class SetArithCommandHandler : SpecialCommandHandler {
         val expr = body.substring(eqIndex + 1).trim()
         val resolved = replaceVars(expr, ctx.mergedVariables)
         try {
-            val result = evalArithExpr(resolved)
+            val result = ArithEvaluator.eval(resolved)
             ctx.mergedVariables[varName] = result.toString()
             ctx.emitLine("[set /a] $varName = $result")
         } catch (e: Exception) {
             ctx.emitLine("[错误] 算术表达式求值失败: $resolved — ${e.message}")
         }
         ctx.addResult(CommandResult(command = effectiveCommand, result = null))
-    }
-
-    /** 简单整数表达式求值，支持 + - * / % 和括号 */
-    companion object {
-        fun evalArithExpr(expr: String): Long {
-            val tokens = tokenize(expr)
-            val pos = intArrayOf(0)
-            val result = parseExpr(tokens, pos)
-            if (pos[0] < tokens.size) {
-                throw IllegalArgumentException("多余的 token: ${tokens[pos[0]]}")
-            }
-            return result
-        }
-
-        private data class Token(val value: String, val isOp: Boolean)
-
-        private fun tokenize(expr: String): List<Token> {
-            val tokens = mutableListOf<Token>()
-            var i = 0
-            while (i < expr.length) {
-                when {
-                    expr[i].isWhitespace() -> i++
-                    expr[i] in "+-*/%()" -> {
-                        // 处理一元负号: 如果 - 在开头或前面是运算符/左括号
-                        if (expr[i] == '-' && (tokens.isEmpty() || (tokens.last().isOp && tokens.last().value != ")"))) {
-                            // 一元负号：读取数字并取反
-                            i++
-                            val num = StringBuilder("-")
-                            while (i < expr.length && expr[i].isDigit()) {
-                                num.append(expr[i])
-                                i++
-                            }
-                            if (num.length == 1) throw IllegalArgumentException("一元负号后缺少数字")
-                            tokens.add(Token(num.toString(), false))
-                        } else {
-                            tokens.add(Token(expr[i].toString(), true))
-                            i++
-                        }
-                    }
-                    expr[i].isDigit() -> {
-                        val num = StringBuilder()
-                        while (i < expr.length && expr[i].isDigit()) {
-                            num.append(expr[i])
-                            i++
-                        }
-                        tokens.add(Token(num.toString(), false))
-                    }
-                    else -> throw IllegalArgumentException("无法识别的字符: ${expr[i]}")
-                }
-            }
-            return tokens
-        }
-
-        // expr = term ((+|-) term)*
-        private fun parseExpr(tokens: List<Token>, pos: IntArray): Long {
-            var result = parseTerm(tokens, pos)
-            while (pos[0] < tokens.size && tokens[pos[0]].value in listOf("+", "-")) {
-                val op = tokens[pos[0]].value
-                pos[0]++
-                val right = parseTerm(tokens, pos)
-                result = if (op == "+") result + right else result - right
-            }
-            return result
-        }
-
-        // term = factor ((*|/|%) factor)*
-        private fun parseTerm(tokens: List<Token>, pos: IntArray): Long {
-            var result = parseFactor(tokens, pos)
-            while (pos[0] < tokens.size && tokens[pos[0]].value in listOf("*", "/", "%")) {
-                val op = tokens[pos[0]].value
-                pos[0]++
-                val right = parseFactor(tokens, pos)
-                result = when (op) {
-                    "*" -> result * right
-                    "/" -> {
-                        if (right == 0L) throw ArithmeticException("除零")
-                        result / right
-                    }
-                    "%" -> {
-                        if (right == 0L) throw ArithmeticException("除零")
-                        result % right
-                    }
-                    else -> result
-                }
-            }
-            return result
-        }
-
-        // factor = number | (expr)
-        private fun parseFactor(tokens: List<Token>, pos: IntArray): Long {
-            if (pos[0] >= tokens.size) throw IllegalArgumentException("表达式不完整")
-            val token = tokens[pos[0]]
-            return if (!token.isOp) {
-                pos[0]++
-                token.value.toLong()
-            } else if (token.value == "(") {
-                pos[0]++ // skip (
-                val result = parseExpr(tokens, pos)
-                if (pos[0] >= tokens.size || tokens[pos[0]].value != ")") {
-                    throw IllegalArgumentException("缺少右括号")
-                }
-                pos[0]++ // skip )
-                result
-            } else {
-                throw IllegalArgumentException("意外的 token: ${token.value}")
-            }
-        }
     }
 }
 
@@ -265,6 +163,199 @@ class EchoCommandHandler : SpecialCommandHandler {
         val resolved = replaceVars(text, ctx.mergedVariables)
         ctx.emitLine(resolved)
         ctx.addResult(CommandResult(command = effectiveCommand, result = null))
+    }
+}
+
+/** :label_name — 标签标记（无操作） */
+class LabelCommandHandler : SpecialCommandHandler {
+    override val prefix = ":"
+
+    override suspend fun handle(effectiveCommand: String, scriptCommand: ScriptCommand, ctx: SpecialCommandContext) {
+        val label = effectiveCommand.removePrefix(":").trim()
+        if (label.isNotBlank() && !label.contains(" ")) {
+            ctx.addResult(CommandResult(command = effectiveCommand, result = null, skipped = true))
+        }
+        // 不符合标签格式（含空格或空）的 :xxx 交由常规流程
+    }
+}
+
+/** goto label_name — 跳转到指定标签 */
+class GotoCommandHandler : SpecialCommandHandler {
+    override val prefix = "goto "
+
+    override suspend fun handle(effectiveCommand: String, scriptCommand: ScriptCommand, ctx: SpecialCommandContext) {
+        val label = effectiveCommand.removePrefix(prefix).trim()
+        val found = ctx.jumpTo(label)
+        ctx.emitLine(if (found) "[goto] → $label" else "[goto] 标签不存在: $label")
+        ctx.addResult(CommandResult(command = effectiveCommand, result = null))
+    }
+}
+
+/** capture VAR=shell command — 执行 shell 命令，输出存入变量 */
+class CaptureCommandHandler : SpecialCommandHandler {
+    override val prefix = "capture "
+
+    override suspend fun handle(effectiveCommand: String, scriptCommand: ScriptCommand, ctx: SpecialCommandContext) {
+        val body = effectiveCommand.removePrefix(prefix).trim()
+        val eqIndex = body.indexOf('=')
+        if (eqIndex < 0) {
+            ctx.emitLine("[错误] capture 语法错误，应为 capture VAR=shell command")
+            ctx.addResult(CommandResult(command = effectiveCommand, result = null, error = "capture 语法错误"))
+            return
+        }
+        val varName = body.substring(0, eqIndex).trim()
+        if (varName.isEmpty()) {
+            ctx.emitLine("[错误] capture 变量名为空")
+            ctx.addResult(CommandResult(command = effectiveCommand, result = null, error = "capture 变量名为空"))
+            return
+        }
+        val shellCmd = body.substring(eqIndex + 1).trim()
+        var effectiveShell = shellCmd
+        if (effectiveShell.startsWith("adb ", ignoreCase = true)) {
+            effectiveShell = effectiveShell.removePrefix("adb ")
+        }
+        ctx.emitLine("[capture] $varName = $effectiveShell")
+        try {
+            val result = ctx.executeShell(effectiveShell, null)
+            val output = result.output.trim()
+            ctx.mergedVariables[varName] = output
+            ctx.emitLine("[capture] $varName = $output")
+        } catch (e: Exception) {
+            ctx.emitLine("[capture] 执行失败: ${e.message}")
+            ctx.mergedVariables[varName] = ""
+        }
+        ctx.addResult(CommandResult(command = effectiveCommand, result = null))
+    }
+}
+
+/** if condition action — 条件判断 */
+class IfCommandHandler : SpecialCommandHandler {
+    override val prefix = "if "
+
+    override suspend fun handle(effectiveCommand: String, scriptCommand: ScriptCommand, ctx: SpecialCommandContext) {
+        // 使用原始命令文本以保留 $VAR 语法（engine 的 replaceVariables 已替换掉 $VAR）
+        var raw = scriptCommand.command.trim()
+        if (raw.startsWith("! ")) raw = raw.removePrefix("! ")
+        if (raw.startsWith("adb ", ignoreCase = true)) raw = raw.removePrefix("adb ")
+        val body = raw.removePrefix(prefix).trim()
+
+        // 解析条件
+        val (condition, action) = parseIfCondition(body)
+        if (condition == null || action == null) {
+            ctx.emitLine("[错误] if 语法错误，支持的条件: \$VAR==\"value\" / \$VAR!=\"value\" / defined \$VAR / not defined \$VAR / exists:path / not_exists:path")
+            ctx.addResult(CommandResult(command = effectiveCommand, result = null, error = "if 语法错误"))
+            return
+        }
+
+        // 评估条件（变量替换后）
+        val conditionResult: Boolean = if (condition.startsWith("exists:") || condition.startsWith("not_exists:")) {
+            // 路径条件需要执行 shell 检查
+            val isExists = condition.startsWith("exists:")
+            val path = condition.removePrefix(if (isExists) "exists:" else "not_exists:")
+            val resolvedPath = replaceVars(path, ctx.mergedVariables)
+            val shellResult = ctx.executeShell("shell ls $resolvedPath 2>/dev/null && echo true || echo false", null)
+            val pathExists = shellResult.output.trim() == "true"
+            ctx.emitLine("[if] $condition → ${if (pathExists == isExists) "true" else "false"}")
+            pathExists == isExists
+        } else {
+            val result = evaluateIfCondition(condition, ctx.mergedVariables)
+            ctx.emitLine("[if] $condition → ${if (result) "true" else "false"}")
+            result
+        }
+
+        if (conditionResult) {
+            // 条件成立：通过 handler 注册表执行 action
+            val resolvedAction = replaceVars(action, ctx.mergedVariables)
+            val handler = listOf(
+                GotoCommandHandler(),
+                EchoCommandHandler(),
+                SetCommandHandler(),
+                SetPromptCommandHandler(),
+                SetArithCommandHandler(),
+                CaptureCommandHandler()
+            ).find { resolvedAction.startsWith(it.prefix, ignoreCase = true) }
+
+            if (handler != null) {
+                handler.handle(resolvedAction, scriptCommand.copy(command = resolvedAction), ctx)
+            } else {
+                ctx.emitLine("[if] 不支持的 action: $action")
+            }
+        } else {
+            ctx.emitLine("[if] 条件不满足，跳过: $action")
+            ctx.addResult(CommandResult(command = effectiveCommand, result = null, skipped = true))
+        }
+    }
+
+    /**
+     * 解析 if 条件行，返回 (条件表达式, 动作命令)。
+     * 若解析失败返回 (null, null)。
+     */
+    private data class IfParseResult(val condition: String?, val action: String?)
+
+    private fun parseIfCondition(body: String): IfParseResult {
+        // 处理 defined / not defined
+        val definedMatch = Regex("""^(not\s+)?defined\s+\$?(\w+)\s+(.+)$""").find(body)
+        if (definedMatch != null) {
+            val isNot = definedMatch.groupValues[1].isNotBlank()
+            val varName = definedMatch.groupValues[2]
+            val action = definedMatch.groupValues[3]
+            return IfParseResult("defined:\$$varName:${if (isNot) "false" else "true"}", action)
+        }
+
+        // 处理 $VAR=="value" / $VAR!="value"
+        val eqMatch = Regex("""^\$(\w+)\s*(==|!=)\s*"([^"]*)"\s+(.+)$""").find(body)
+        if (eqMatch != null) {
+            val varName = eqMatch.groupValues[1]
+            val op = eqMatch.groupValues[2]
+            val value = eqMatch.groupValues[3]
+            val action = eqMatch.groupValues[4]
+            return IfParseResult("str:$op:\$$varName:$value", action)
+        }
+
+        // 处理 exists:路径 / not_exists:路径
+        val pathMatch = Regex("""^(not_exists|exists):(\S+)\s+(.+)$""").find(body)
+        if (pathMatch != null) {
+            val condType = pathMatch.groupValues[1]
+            val path = pathMatch.groupValues[2]
+            val action = pathMatch.groupValues[3]
+            return IfParseResult("$condType:$path", action)
+        }
+
+        return IfParseResult(null, null)
+    }
+
+    private fun evaluateIfCondition(condition: String, variables: Map<String, String>): Boolean {
+        return when {
+            condition.startsWith("defined:") -> {
+                val parts = condition.removePrefix("defined:").split(":", limit = 2)
+                val varValue = variables[parts[0].removePrefix("$")]
+                val expected = parts.getOrElse(1) { "true" }.toBoolean()
+                val isDefined = !varValue.isNullOrBlank()
+                isDefined == expected
+            }
+            condition.startsWith("str:") -> {
+                val rest = condition.removePrefix("str:")
+                val op = rest.take(2)  // == or !=
+                val rest2 = rest.drop(2).removePrefix(":")  // 去掉 op 后的分隔冒号
+                val parts = rest2.split(":", limit = 2)
+                val varName = parts[0].removePrefix("$")
+                val varValue = variables[varName] ?: ""
+                val expected = parts.getOrElse(1) { "" }
+                if (op == "==") varValue == expected else varValue != expected
+            }
+            condition.startsWith("exists:") -> true  // 由调用方评估路径条件
+            condition.startsWith("not_exists:") -> false
+            else -> true
+        }
+    }
+
+    private fun replaceVars(text: String, variables: Map<String, String>): String {
+        var result = text
+        variables.forEach { (key, value) ->
+            result = result.replace("\${$key}", value)
+            result = result.replace("$$key", value)
+        }
+        return result
     }
 }
 

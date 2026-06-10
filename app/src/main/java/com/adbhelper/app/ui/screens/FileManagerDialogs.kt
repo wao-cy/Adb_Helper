@@ -21,6 +21,7 @@ fun FileDetailDialog(
     onDismiss: () -> Unit,
     onViewText: () -> Unit,
     onDownload: () -> Unit,
+    onRename: () -> Unit,
     onCopyPath: () -> Unit
 ) {
     AlertDialog(
@@ -39,19 +40,46 @@ fun FileDetailDialog(
                 DetailRow("所有者", "${file.owner}:${file.group}")
                 DetailRow("修改时间", file.modifiedDate)
 
-                // 仅显示查看和下载
-                if (!file.isDirectory && (isTextFile(file.name) || true)) {
-                    Spacer(Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Spacer(Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (isTextFile(file.name)) {
-                            OutlinedButton(onClick = onViewText, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Default.Visibility, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp)); Text("查看")
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(4.dp))
+
+                // 操作按钮：重命名 + 查看/下载
+                if (file.isDirectory) {
+                    OutlinedButton(
+                        onClick = onRename,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.DriveFileRenameOutline, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp)); Text("重命名")
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onRename,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.DriveFileRenameOutline, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp)); Text("重命名")
+                            }
+                            if (isTextFile(file.name)) {
+                                OutlinedButton(
+                                    onClick = onViewText,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Visibility, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp)); Text("查看")
+                                }
                             }
                         }
-                        OutlinedButton(onClick = onDownload, modifier = Modifier.weight(1f)) {
+                        OutlinedButton(
+                            onClick = onDownload,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp)); Text("下载")
                         }
@@ -59,7 +87,11 @@ fun FileDetailDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
     )
 }
 

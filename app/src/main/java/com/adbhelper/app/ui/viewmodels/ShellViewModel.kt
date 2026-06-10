@@ -89,23 +89,26 @@ class ShellViewModel @Inject constructor(
 
             addColoredLine("$ $command", Color.Cyan)
 
+            // 去掉用户可能输入的 "adb " 前缀
+            val cleanCommand = command.trimStart().removePrefix("adb ").trimStart()
+
             when {
-                command.equals("clear", ignoreCase = true) -> {
+                cleanCommand.equals("clear", ignoreCase = true) -> {
                     clearOutput()
                     _uiState.value = _uiState.value.copy(isExecuting = false)
                     return@launch
                 }
-                command.equals("help", ignoreCase = true) -> {
+                cleanCommand.equals("help", ignoreCase = true) -> {
                     showHelp()
                     _uiState.value = _uiState.value.copy(isExecuting = false)
                     return@launch
                 }
-                command.equals("history", ignoreCase = true) -> {
+                cleanCommand.equals("history", ignoreCase = true) -> {
                     showHistory()
                     _uiState.value = _uiState.value.copy(isExecuting = false)
                     return@launch
                 }
-                command.equals("shell", ignoreCase = true) -> {
+                cleanCommand.equals("shell", ignoreCase = true) -> {
                     startInteractiveShell()
                     return@launch
                 }
@@ -113,13 +116,19 @@ class ShellViewModel @Inject constructor(
 
             try {
                 val serial = deviceSession.selectedSerial.value
-                val args = command.split("\\s+".toRegex()).toTypedArray()
-                val finalArgs = if (serial != null) arrayOf("-s", serial) + args else args
-                val process = adbManager.executeCommand(*finalArgs)
-                currentProcess = process
-                val output = process.inputStream.bufferedReader().readText()
-                process.waitFor()
-                currentProcess = null
+                val args = cleanCommand.split("\\s+".toRegex()).toTypedArray()
+                val output = withContext(Dispatchers.IO) {
+                    val finalArgs = if (serial != null) arrayOf("-s", serial) + args else args
+                    val process = adbManager.executeCommand(*finalArgs)
+                    currentProcess = process
+                    try {
+                        val text = process.inputStream.bufferedReader().readText()
+                        process.waitFor()
+                        text
+                    } finally {
+                        currentProcess = null
+                    }
+                }
                 if (output.isNotBlank()) {
                     output.lines().forEach { line ->
                         addRawLine(line)

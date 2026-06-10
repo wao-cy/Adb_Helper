@@ -1,8 +1,10 @@
 package com.adbhelper.app.ui.viewmodels
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adbhelper.app.core.adb.DeviceSession
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.adbhelper.app.core.shell.ShellExecutor
 import com.adbhelper.app.core.shell.ShellExecutor.RebootMode
 import com.adbhelper.app.core.shell.TransferHelper
@@ -37,6 +39,7 @@ data class DeviceUiState(
 
 @HiltViewModel
 class DeviceViewModel @Inject constructor(
+    @param:ApplicationContext private val context: Context,
     private val shellExecutor: ShellExecutor,
     private val transferHelper: TransferHelper,
     private val settingsRepository: SettingsRepository,
@@ -209,24 +212,22 @@ class DeviceViewModel @Inject constructor(
                 val timestamp = System.currentTimeMillis()
                 val remotePath = "/sdcard/screenshot_$timestamp.png"
                 val localDir = settingsRepository.localSavePathFlow.value
-                // 确保本地目录存在（清缓存后目录可能丢失）
-                java.io.File(localDir).mkdirs()
-                val localPath = "$localDir/screenshot_$timestamp.png"
 
                 // 远程截屏
                 shellExecutor.screenshot(remotePath, serial)
 
-                // 拉取到本地
+                val fileName = "screenshot_$timestamp.png"
+                java.io.File(localDir).mkdirs()
+                val localPath = "$localDir/$fileName"
                 val pullResult = transferHelper.pull(remotePath, localPath, serial)
                 val success = pullResult.output.contains("pulled", ignoreCase = true)
-
-                // 清理远程临时文件
-                shellExecutor.execute("rm -f $remotePath", serial)
-
                 _uiState.value = _uiState.value.copy(
                     showScreenshotDialog = true,
                     screenshotPath = if (success) localPath else "拉取失败: ${pullResult.output.trim()}"
                 )
+
+                // 清理远程临时文件
+                shellExecutor.execute("rm -f $remotePath", serial)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message)
             }

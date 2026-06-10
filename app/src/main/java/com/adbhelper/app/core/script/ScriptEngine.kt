@@ -84,16 +84,20 @@ class ScriptEngine @Inject constructor(
     private var inputDeferred: CompletableDeferred<String>? = null
     private var confirmDeferred: CompletableDeferred<Unit>? = null
 
-    /** 特殊命令处理器注册表：前缀 → handler（长前缀在前，确保优先匹配） */
-    private val specialHandlers: Map<String, SpecialCommandHandler> = listOf(
-        DelayCommandHandler(),
-        InputCommandHandler(),
-        ConfirmCommandHandler(),
+    /** 特殊命令处理器注册表，按前缀长度降序（长前缀优先匹配） */
+    private val specialHandlers: List<SpecialCommandHandler> = listOf(
         SetPromptCommandHandler(),  // "set /p "
         SetArithCommandHandler(),   // "set /a "
         SetCommandHandler(),        // "set "
-        EchoCommandHandler()        // "echo "
-    ).associateBy { it.prefix }
+        CaptureCommandHandler(),    // "capture "
+        DelayCommandHandler(),      // "delay "
+        InputCommandHandler(),      // "input "
+        ConfirmCommandHandler(),    // "confirm "
+        EchoCommandHandler(),       // "echo "
+        GotoCommandHandler(),       // "goto "
+        IfCommandHandler(),         // "if "
+        LabelCommandHandler()       // ":"
+    ).sortedByDescending { it.prefix.length }
 
     /** 待执行的脚本，由编辑页设置，ShellViewModel 读取后清空 */
     var pendingScript: AdbScript? = null
@@ -121,11 +125,19 @@ class ScriptEngine @Inject constructor(
             commandDescription = ""
         )
 
+        // 预处理标签索引
+        val labelIndexMap = buildLabelIndexMap(script.commands)
+
         var success = true
         var errorMessage: String? = null
 
         try {
-            for ((index, scriptCommand) in script.commands.withIndex()) {
+            var commandIndex = 0
+            var jumpTargetIndex: Int? = null
+
+            while (commandIndex < script.commands.size) {
+                val scriptCommand = script.commands[commandIndex]
+
                 if (!isActive) {
                     break
                 }
@@ -135,20 +147,25 @@ class ScriptEngine @Inject constructor(
                 // 跳过注释和空行
                 if (resolvedCommand.isBlank() || resolvedCommand.startsWith("#")) {
                     commandResults.add(CommandResult(command = resolvedCommand, result = null, skipped = true))
+                    commandIndex++
                     continue
                 }
 
                 // ! 前缀：遇到错误时退出脚本（默认忽略错误继续执行）
                 val exitOnError = resolvedCommand.startsWith("! ") || scriptCommand.ignoreError
-                val effectiveCommand = if (resolvedCommand.startsWith("! ")) resolvedCommand.removePrefix("! ") else resolvedCommand
+                var effectiveCommand = if (resolvedCommand.startsWith("! ")) resolvedCommand.removePrefix("! ") else resolvedCommand
+                // 去掉可选的 "adb " 前缀
+                if (effectiveCommand.startsWith("adb ", ignoreCase = true)) {
+                    effectiveCommand = effectiveCommand.removePrefix("adb ")
+                }
 
-                // 特殊命令：通过 handler 注册表查找
-                val handler = specialHandlers.entries.find {
-                    effectiveCommand.startsWith(it.key, ignoreCase = true)
-                }?.value
+                // 特殊命令：通过 handler 列表查找（长前缀优先匹配）
+                val handler = specialHandlers.firstOrNull {
+                    effectiveCommand.startsWith(it.prefix, ignoreCase = true)
+                }
                 if (handler != null) {
                     val ctx = SpecialCommandContext(
-                        index = index,
+                        index = commandIndex,
                         totalCommands = script.commands.size,
                         outputLines = outputLines,
                         mergedVariables = mergedVariables,
@@ -163,78 +180,102 @@ class ScriptEngine @Inject constructor(
                         awaitConfirm = { deferred ->
                             confirmDeferred = deferred
                             try { deferred.await() } finally { confirmDeferred = null }
+                        },
+                        jumpTo = { label ->
+                            labelIndexMap[label]?.let {
+                                jumpTargetIndex = it
+                                true
+                            } ?: false
+                        },
+                        executeShell = { cmd, serialOverride ->
+                            val effSerial = serialOverride ?: serial
+                            if (cmd.startsWith("shell ", ignoreCase = true)) {
+                                shellExecutor.execute(cmd, effSerial)
+                            } else {
+                                val args = cmd.split("\\s+".toRegex()).toTypedArray()
+                                val output = adbManager.executeAdbCommand(*args, serial = effSerial)
+                                ShellResult(command = cmd, output = output, exitCode = 0)
+                            }
                         }
                     )
                     handler.handle(effectiveCommand, scriptCommand, ctx)
-                    continue
-                }
+                } else {
+                    // 更新状态
+                    updateRunning(commandIndex, script.commands.size, scriptCommand.description, outputLines)
 
-                // 更新状态
-                updateRunning(index, script.commands.size, scriptCommand.description, outputLines)
-
-                // Check condition
-                if (scriptCommand.condition != null) {
-                    val conditionResult = evaluateCondition(scriptCommand.condition, mergedVariables, serial)
-                    if (!conditionResult) {
-                        emitLine("[跳过] $effectiveCommand (条件不满足)")
-                        commandResults.add(CommandResult(command = effectiveCommand, result = null, skipped = true))
-                        continue
-                    }
-                }
-
-                // 执行普通命令（带流式输出）
-                try {
-                    val lines = mutableListOf<String>()
-                    emitLine("> $resolvedCommand")
-
-                    val result = withTimeout(scriptCommand.timeout) {
-                        if (effectiveCommand.startsWith("shell ", ignoreCase = true)) {
-                            shellExecutor.execute(effectiveCommand, serial)
-                        } else {
-                            val args = effectiveCommand.split("\\s+".toRegex()).toTypedArray()
-                            val output = adbManager.executeAdbCommand(*args, serial = serial)
-                            ShellResult(command = effectiveCommand, output = output, exitCode = 0)
+                    // Check condition
+                    if (scriptCommand.condition != null) {
+                        val conditionResult = evaluateCondition(scriptCommand.condition, mergedVariables, serial)
+                        if (!conditionResult) {
+                            emitLine("[跳过] $effectiveCommand (条件不满足)")
+                            commandResults.add(CommandResult(command = effectiveCommand, result = null, skipped = true))
+                            commandIndex++
+                            continue
                         }
                     }
 
-                    result.output.lines().forEach { line ->
-                        if (line.isNotBlank()) {
-                            lines.add(line)
-                            emitLine(line)
+                    // 执行普通命令（带流式输出）
+                    try {
+                        val lines = mutableListOf<String>()
+                        emitLine("> $resolvedCommand")
+
+                        val result = withTimeout(scriptCommand.timeout) {
+                            if (effectiveCommand.startsWith("shell ", ignoreCase = true)) {
+                                shellExecutor.execute(effectiveCommand, serial)
+                            } else {
+                                val args = effectiveCommand.split("\\s+".toRegex()).toTypedArray()
+                                val output = adbManager.executeAdbCommand(*args, serial = serial)
+                                ShellResult(command = effectiveCommand, output = output, exitCode = 0)
+                            }
+                        }
+
+                        result.output.lines().forEach { line ->
+                            if (line.isNotBlank()) {
+                                lines.add(line)
+                                emitLine(line)
+                            }
+                        }
+                        // 更新 UI 输出
+                        _executionState.value = ScriptExecutionState.Running(
+                            currentCommand = commandIndex + 1,
+                            totalCommands = script.commands.size,
+                            commandDescription = scriptCommand.description,
+                            outputLines = outputLines.toList()
+                        )
+
+                        commandResults.add(CommandResult(command = effectiveCommand, result = result))
+
+                        if (result.exitCode != 0 && exitOnError) {
+                            success = false
+                            errorMessage = "Command failed: $effectiveCommand\n${result.output}"
+                            emitLine("[错误] 命令失败，退出码: ${result.exitCode}")
+                            break
+                        }
+                    } catch (_: TimeoutCancellationException) {
+                        emitLine("[超时] $effectiveCommand")
+                        commandResults.add(CommandResult(command = effectiveCommand, result = null, error = "Command timed out after ${scriptCommand.timeout}ms"))
+                        if (exitOnError) {
+                            success = false
+                            errorMessage = "Command timed out: $effectiveCommand"
+                            break
+                        }
+                    } catch (e: Exception) {
+                        emitLine("[异常] ${e.message}")
+                        commandResults.add(CommandResult(command = effectiveCommand, result = null, error = e.message))
+                        if (exitOnError) {
+                            success = false
+                            errorMessage = "Error: ${e.message}"
+                            break
                         }
                     }
-                    // 更新 UI 输出
-                    _executionState.value = ScriptExecutionState.Running(
-                        currentCommand = index + 1,
-                        totalCommands = script.commands.size,
-                        commandDescription = scriptCommand.description,
-                        outputLines = outputLines.toList()
-                    )
+                }
 
-                    commandResults.add(CommandResult(command = effectiveCommand, result = result))
-
-                    if (result.exitCode != 0 && exitOnError) {
-                        success = false
-                        errorMessage = "Command failed: $effectiveCommand\n${result.output}"
-                        emitLine("[错误] 命令失败，退出码: ${result.exitCode}")
-                        break
-                    }
-                } catch (_: TimeoutCancellationException) {
-                    emitLine("[超时] $effectiveCommand")
-                    commandResults.add(CommandResult(command = effectiveCommand, result = null, error = "Command timed out after ${scriptCommand.timeout}ms"))
-                    if (exitOnError) {
-                        success = false
-                        errorMessage = "Command timed out: $effectiveCommand"
-                        break
-                    }
-                } catch (e: Exception) {
-                    emitLine("[异常] ${e.message}")
-                    commandResults.add(CommandResult(command = effectiveCommand, result = null, error = e.message))
-                    if (exitOnError) {
-                        success = false
-                        errorMessage = "Error: ${e.message}"
-                        break
-                    }
+                // 处理 goto 跳转
+                if (jumpTargetIndex != null) {
+                    commandIndex = jumpTargetIndex!!
+                    jumpTargetIndex = null
+                } else {
+                    commandIndex++
                 }
             }
         } finally {
@@ -347,69 +388,128 @@ class ScriptEngine @Inject constructor(
         }
     }
 
+    /** 构建标签名 → 命令索引的映射（用于 goto） */
+    private fun buildLabelIndexMap(commands: List<ScriptCommand>): Map<String, Int> {
+        val map = mutableMapOf<String, Int>()
+        commands.forEachIndexed { i, cmd ->
+            val trimmed = cmd.command.trim()
+            if (trimmed.startsWith(":") && trimmed.length > 1 && !trimmed.substring(1).contains(" ")) {
+                map[trimmed.removePrefix(":")] = i
+            }
+        }
+        return map
+    }
+
     // Predefined script templates
     companion object {
-        val DEVICE_INFO_SCRIPT = AdbScript(
-            id = "device_info",
-            name = "设备信息采集",
-            description = "一键收集设备型号、系统版本、电池、存储等关键信息",
-            category = "info",
+        val COMPREHENSIVE_DEMO_SCRIPT = AdbScript(
+            id = "comprehensive_demo",
+            name = "综合命令演示",
+            description = "全面展示脚本引擎所有命令：echo / set / set /p / set /a / capture / if / goto / delay / input / confirm，以及控制流、输出捕获等高级功能",
+            category = "custom",
             commands = listOf(
-                ScriptCommand("# 设备基本信息", ""),
+                ScriptCommand("# ===== 综合命令演示 — 覆盖所有自定义命令 =====\n# echo、delay、input、confirm、set、set /p、set /a\n# capture、if、goto、:label、!、\$变量引用", ""),
+
+                // ---------- 基本命令 ----------
+                ScriptCommand("echo ========== 1. 基本命令 ==========", ""),
                 ScriptCommand("shell getprop ro.product.model", "设备型号"),
-                ScriptCommand("shell getprop ro.product.brand", "设备品牌"),
-                ScriptCommand("shell getprop ro.build.version.release", "Android 版本"),
-                ScriptCommand("shell getprop ro.build.display.id", "系统版本号"),
-                ScriptCommand("# 硬件信息", ""),
-                ScriptCommand("shell cat /proc/cpuinfo | head -5", "CPU 信息"),
-                ScriptCommand("shell cat /proc/meminfo | head -3", "内存信息"),
-                ScriptCommand("shell wm size", "屏幕分辨率"),
-                ScriptCommand("shell wm density", "屏幕密度"),
-                ScriptCommand("# 电池与存储", ""),
-                ScriptCommand("shell dumpsys battery | grep -E 'level|status|temperature'", "电池状态"),
-                ScriptCommand("shell df -h /data", "存储使用情况")
-            )
-        )
+                ScriptCommand("shell getprop ro.build.version.release", "系统版本"),
 
-        val APP_CLEANUP_SCRIPT = AdbScript(
-            id = "app_cleanup",
-            name = "交互式应用清理",
-            description = "交互式输入包名，确认后卸载应用（支持用户输入和确认）",
-            category = "custom",
-            commands = listOf(
-                ScriptCommand("input 请输入要清理的应用包名:", "获取用户输入"),
-                ScriptCommand("confirm 确认卸载 \$INPUT ？此操作不可撤销。", "二次确认"),
-                ScriptCommand("shell pm uninstall \$INPUT", "执行卸载"),
-                ScriptCommand("delay 1", "等待 1 秒"),
-                ScriptCommand("! shell pm list packages | grep \$INPUT", "验证卸载结果")
-            )
-        )
+                // ---------- capture 输出捕获 ----------
+                ScriptCommand("capture BRAND=shell getprop ro.product.brand", "捕获输出到变量"),
+                ScriptCommand("echo 设备品牌: \$BRAND", "引用捕获的变量"),
 
-        val VARIABLE_DEMO_SCRIPT = AdbScript(
-            id = "variable_demo",
-            name = "变量操作演示",
-            description = "演示 set / set /p / set /a / echo 等变量操作命令",
-            category = "custom",
-            commands = listOf(
-                ScriptCommand("# 基本赋值", ""),
-                ScriptCommand("set PKG=com.example.app", "设置包名变量"),
-                ScriptCommand("echo 目标包名: \$PKG", "输出变量值"),
-                ScriptCommand("# 交互输入", ""),
-                ScriptCommand("set /p NAME=请输入应用名称:", "交互输入应用名"),
-                ScriptCommand("echo 你输入的应用名是: \$NAME", "回显输入"),
-                ScriptCommand("# 算术运算", ""),
-                ScriptCommand("set /p COUNT=请输入重试次数:", "输入重试次数"),
-                ScriptCommand("set /a REMAIN=\$COUNT-1", "计算剩余次数"),
-                ScriptCommand("echo 剩余重试次数: \$REMAIN", "输出计算结果"),
-                ScriptCommand("# 条件判断", ""),
-                ScriptCommand("shell pm list packages | grep \$PKG", "检查应用是否存在")
+                // ---------- if + goto 控制流 ----------
+                ScriptCommand("if \$BRAND==\"samsung\" goto samsung_device", "三星设备分支"),
+                ScriptCommand("echo 非三星设备，跳过三星专用设置", ""),
+                ScriptCommand("goto ask_pkg", "跳转到输入环节"),
+
+                ScriptCommand(":samsung_device", "标签：三星设备"),
+                ScriptCommand("echo 检测到三星设备，启用多窗口模式", ""),
+                ScriptCommand("shell settings put global multi_window_enabled 1", "启用多窗口"),
+                ScriptCommand("delay 1", ""),
+
+                // ---------- set 变量赋值 ----------
+                ScriptCommand(":ask_pkg", "标签：询问包名"),
+                ScriptCommand("echo ========== 2. 变量赋值与交互 ==========", ""),
+                ScriptCommand("set DEF_PKG=com.android.chrome", "设置默认包名"),
+                ScriptCommand("set DEF_ACTION=install", "设置默认操作"),
+                ScriptCommand("echo 默认包名: \$DEF_PKG，默认操作: \$DEF_ACTION", ""),
+
+                // ---------- set /p 交互输入 ----------
+                ScriptCommand("set /p PKG=请输入包名(留空用默认):", "交互输入包名"),
+                ScriptCommand("set /p ACTION=请输入操作(install/uninstall):", "交互输入操作"),
+
+                // ---------- if 变量比较 ----------
+                ScriptCommand("if \$PKG!=\"\" goto use_custom_pkg", "自定义包名"),
+                ScriptCommand("set PKG=\$DEF_PKG", "使用默认包名"),
+                ScriptCommand("goto check_action", ""),
+
+                ScriptCommand(":use_custom_pkg", "标签：自定义包名"),
+                ScriptCommand("echo 使用自定义包名: \$PKG", ""),
+
+                // ---------- if + goto 根据操作跳转 ----------
+                ScriptCommand(":check_action", "标签：判断操作类型"),
+                ScriptCommand("if \$ACTION==\"uninstall\" goto do_uninstall", ""),
+                ScriptCommand("if \$ACTION==\"install\" goto do_install", ""),
+                ScriptCommand("echo 未知操作: \$ACTION，使用默认操作", ""),
+                ScriptCommand("set ACTION=\$DEF_ACTION", ""),
+                ScriptCommand("if \$ACTION==\"uninstall\" goto do_uninstall", ""),
+                ScriptCommand("echo 执行默认操作: \$ACTION", ""),
+                ScriptCommand("goto end", ""),
+
+                // ---------- input + confirm ----------
+                ScriptCommand(":do_uninstall", "标签：卸载流程"),
+                ScriptCommand("echo ========== 3. 交互确认 ==========", ""),
+                ScriptCommand("input 请输入卸载原因(可选，直接回车跳过):", "输入反馈"),
+                ScriptCommand("if \$INPUT!=\"\" echo 卸载原因已记录: \$INPUT", ""),
+                ScriptCommand("confirm 确认卸载 \$PKG ？此操作不可撤销。", "确认卸载"),
+                ScriptCommand("! shell pm uninstall \$PKG", "执行卸载(失败则退出)"),
+                ScriptCommand("delay 2", "等待 2 秒"),
+                ScriptCommand("echo 卸载完成，验证结果...", ""),
+
+                // ---------- condition 条件执行 ----------
+                ScriptCommand("shell pm list packages | grep \$PKG", "验证卸载(应失败)"),
+
+                // ---------- set /a 算术运算 ----------
+                ScriptCommand("echo ========== 4. 算术运算 ==========", ""),
+                ScriptCommand("set /a SCORE=85+15", "算术: 加法"),
+                ScriptCommand("echo 评分: \$SCORE", ""),
+                ScriptCommand("set COUNT=3", ""),
+                ScriptCommand("set /a REMAIN=\$COUNT-1", "算术: 减法"),
+                ScriptCommand("set /a DOUBLE=\$COUNT*2", "算术: 乘法"),
+                ScriptCommand("echo 剩余: \$REMAIN，双倍: \$DOUBLE", ""),
+                ScriptCommand("goto end", ""),
+
+                // ---------- 安装流程 ----------
+                ScriptCommand(":do_install", "标签：安装流程"),
+                ScriptCommand("echo ========== 5. 安装流程 ==========", ""),
+
+                // ---------- condition 文件存在检查 ----------
+                ScriptCommand("input 请输入APK路径(默认 /sdcard/app.apk):", ""),
+                ScriptCommand("if \$INPUT!=\"\" goto set_apk_path", ""),
+                ScriptCommand("set APK_PATH=/sdcard/app.apk", ""),
+                ScriptCommand("goto do_install_exec", ""),
+                ScriptCommand(":set_apk_path", ""),
+                ScriptCommand("set APK_PATH=\$INPUT", ""),
+
+                ScriptCommand(":do_install_exec", ""),
+                ScriptCommand("echo 安装路径: \$APK_PATH", ""),
+                ScriptCommand("shell pm install \$APK_PATH", "安装APK"),
+                ScriptCommand("delay 1", ""),
+
+                // ---------- 结束 ----------
+                ScriptCommand(":end", "标签：结束"),
+                ScriptCommand("echo ========== 演示结束 ==========", ""),
+                ScriptCommand("echo 本脚本演示了所有命令的用法。", ""),
+
+                // 宏块条件示例（通过编辑命令卡片的 condition 字段使用）
+                ScriptCommand("# 提示: 以下命令支持在「条件」字段设置条件\n# exists:路径 — 文件存在才执行\n# not_exists:路径 — 文件不存在才执行\n# package:包名 — 应用存在才执行", "")
             )
         )
 
         val PREDEFINED_SCRIPTS = listOf(
-            DEVICE_INFO_SCRIPT,
-            APP_CLEANUP_SCRIPT,
-            VARIABLE_DEMO_SCRIPT
+            COMPREHENSIVE_DEMO_SCRIPT
         )
     }
 }

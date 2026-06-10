@@ -108,13 +108,11 @@ class AppTransferHandler(
                 val localDir = settingsRepository.localSavePathFlow.value
                 File(localDir).mkdirs()
                 val localPath = generateUniqueLocalPath(localDir, fileName)
-
                 transferHelper.pullStreaming(apkPath, localPath, serial) { progress ->
                     uiState.value = uiState.value.copy(
                         transferState = uiState.value.transferState?.copy(progress = progress)
                     )
                 }
-
                 uiState.value = uiState.value.copy(
                     transferState = uiState.value.transferState?.copy(resultMessage = "已保存到:\n$localPath")
                 )

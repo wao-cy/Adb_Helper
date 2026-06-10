@@ -1,11 +1,14 @@
 package com.adbhelper.app.ui.screens
 
+import android.content.Intent
 import android.net.Uri
+
 import android.os.Environment
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -217,50 +220,68 @@ fun SettingsScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LocalSavePathSelector(
     currentPath: String,
     onPathSelected: (String) -> Unit
 ) {
+    val ctx = LocalContext.current
+
+    // SAF OpenDocumentTree 选择器
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         uri?.let {
-            val path = uriToFilePath(it) ?: return@let
-            onPathSelected(path)
+            try {
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                ctx.contentResolver.takePersistableUriPermission(it, flags)
+            } catch (_: Exception) {}
+            onPathSelected(safUriToFilePath(it) ?: it.toString())
         }
     }
 
     Column {
-        // 当前路径显示 + 文件夹选择按钮
-        OutlinedTextField(
-            value = currentPath,
-            onValueChange = onPathSelected,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(stringResource(R.string.local_save_path_hint)) },
-            singleLine = true,
-            trailingIcon = {
-                IconButton(onClick = { folderPickerLauncher.launch(null) }) {
-                    Icon(Icons.Default.FolderOpen, stringResource(R.string.select_folder))
-                }
+        // 当前路径输入 + 选择按钮
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = currentPath,
+                onValueChange = onPathSelected,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text(stringResource(R.string.local_save_path_hint)) },
+                singleLine = true
+            )
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = {
+                val initialUri = DocumentsContract.buildDocumentUri(
+                    "com.android.externalstorage.documents", "primary"
+                )
+                folderPickerLauncher.launch(initialUri)
+            }) {
+                Icon(Icons.Default.FolderOpen, stringResource(R.string.select_folder))
             }
-        )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // 常用路径快捷选择
-        val ctx = LocalContext.current
-        val sdcard = Environment.getExternalStorageDirectory().path
-        val appDir = ctx.getExternalFilesDir(null)?.absolutePath
+        // 快捷选择
+        Text(
+            "快捷选择",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
         val presets = buildList {
+            val appDir = ctx.getExternalFilesDir(null)?.absolutePath
             if (appDir != null) add(appDir to "应用目录")
-            add("$sdcard/Download" to "Download")
-            add("$sdcard/Documents" to "Documents")
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).path to "Downloads")
+            add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).path to "Documents")
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             presets.forEach { (path, label) ->
                 FilterChip(
@@ -273,22 +294,12 @@ fun LocalSavePathSelector(
     }
 }
 
-private fun uriToFilePath(uri: Uri): String? {
-    val docId = DocumentsContract.getTreeDocumentId(uri)
-    if (docId.startsWith("primary:")) {
-        val subPath = docId.removePrefix("primary:")
-        return "/storage/emulated/0/$subPath"
-    }
-    if (docId.startsWith("home:")) {
-        val subPath = docId.removePrefix("home:")
-        return "/storage/emulated/0/$subPath"
-    }
-    val path = uri.path
-    if (path != null) {
-        val idx = path.indexOf("primary:")
-        if (idx >= 0) {
-            return "/storage/emulated/0/${path.substring(idx + "primary:".length)}"
-        }
-    }
-    return null
+/** 将 SAF tree URI 转为文件路径，用于直接 adb pull */
+private fun safUriToFilePath(uri: Uri): String? {
+    return try {
+        val docId = DocumentsContract.getTreeDocumentId(uri)
+        if (docId.startsWith("primary:")) {
+            "/storage/emulated/0/${docId.removePrefix("primary:")}"
+        } else null
+    } catch (_: Exception) { null }
 }

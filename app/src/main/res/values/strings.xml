@@ -104,8 +104,9 @@
     <string name="description">描述</string>
     <string name="category">分类</string>
     <string name="commands">命令列表</string>
-    <string name="variables">变量</string>
-    <string name="add_variable">添加变量</string>
+    <string name="variables">常量</string>
+    <string name="add_variable">添加常量</string>
+    <string name="constant_value">值</string>
     <string name="add_command">添加命令</string>
     <string name="adb_command">ADB 命令</string>
     <string name="timeout">超时时间</string>

@@ -157,7 +157,7 @@ fun ScriptEditorScreen(
                                     value = value,
                                     onValueChange = { viewModel.updateVariableValue(key, it) },
                                     modifier = Modifier.weight(1f),
-                                    label = { Text(stringResource(R.string.description)) },
+                                    label = { Text(stringResource(R.string.constant_value)) },
                                     singleLine = true
                                 )
                                 IconButton(onClick = { viewModel.removeVariable(key) }) {

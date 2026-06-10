@@ -217,7 +217,7 @@ fun ShellScreen(
                     ) {
                         Text(
                             text = if (uiState.isInteractiveMode) "shell$" else "$",
-                            color = if (uiState.isInteractiveMode) Color.Cyan else Color.Green,
+                            color = MaterialTheme.colorScheme.outline,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 16.sp,
                             modifier = Modifier.padding(end = 8.dp)

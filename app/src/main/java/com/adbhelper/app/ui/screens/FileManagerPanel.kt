@@ -38,7 +38,9 @@ fun FileManagerPanel(
 
     // 仅在当前 Tab 可见时拦截返回键
     BackHandler(enabled = isActive) {
-        if (uiState.currentPath != "/") {
+        if (uiState.isMultiSelectMode) {
+            viewModel.exitMultiSelect()
+        } else if (uiState.currentPath != "/") {
             viewModel.navigateUp()
         } else {
             showExitConfirm = true
@@ -49,7 +51,6 @@ fun FileManagerPanel(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            // 从 URI 获取原始文件名
             val originalName = getFileNameFromUri(context, it) ?: "upload_file"
             val tempFile = java.io.File(context.cacheDir, "upload_temp")
             try {
@@ -72,27 +73,37 @@ fun FileManagerPanel(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 路径栏
-            FileManagerPathBar(
-                currentPath = uiState.currentPath,
-                showHidden = uiState.showHidden,
-                sortBy = uiState.sortBy,
-                sortAscending = uiState.sortAscending,
-                onNavigateUp = { viewModel.navigateUp() },
-                onNavigateTo = { viewModel.navigateTo(it) },
-                onNewFolder = { viewModel.showNewFolderDialog() },
-                onUpload = { filePickerLauncher.launch("*/*") },
-                onToggleHidden = { viewModel.toggleHidden() },
-                onSortBy = { viewModel.setSortBy(it) }
-            )
+            // 顶部栏：多选模式 / 路径栏
+            if (uiState.isMultiSelectMode) {
+                MultiSelectTopBar(
+                    selectedCount = uiState.selectedPaths.size,
+                    totalCount = viewModel.getDisplayFiles().size,
+                    onClose = { viewModel.exitMultiSelect() },
+                    onSelectAll = { viewModel.selectAll() },
+                    onDeselectAll = { viewModel.deselectAll() }
+                )
+            } else {
+                FileManagerPathBar(
+                    currentPath = uiState.currentPath,
+                    showHidden = uiState.showHidden,
+                    sortBy = uiState.sortBy,
+                    sortAscending = uiState.sortAscending,
+                    onNavigateUp = { viewModel.navigateUp() },
+                    onNavigateTo = { viewModel.navigateTo(it) },
+                    onNewFolder = { viewModel.showNewFolderDialog() },
+                    onUpload = { filePickerLauncher.launch("*/*") },
+                    onToggleHidden = { viewModel.toggleHidden() },
+                    onSortBy = { viewModel.setSortBy(it) }
+                )
+            }
 
             // 剪贴板提示
-            if (uiState.clipboardFile != null) {
+            if (uiState.clipboardFiles.isNotEmpty()) {
                 ClipboardBar(
-                    fileName = uiState.clipboardFile!!.name,
+                    fileCount = uiState.clipboardFiles.size,
                     isCut = uiState.clipboardMode == ClipboardMode.CUT,
                     onPaste = { viewModel.paste() },
-                    onCancel = { viewModel.selectFile(null) }
+                    onCancel = { viewModel.clearClipboard() }
                 )
             }
 
@@ -101,16 +112,16 @@ fun FileManagerPanel(
                 isLoading = uiState.isLoading,
                 error = uiState.error,
                 files = viewModel.getDisplayFiles(),
-                selectedPath = uiState.selectedFile?.path,
-                hasSelection = uiState.selectedFile != null,
+                isMultiSelectMode = uiState.isMultiSelectMode,
+                selectedFiles = uiState.selectedPaths,
                 onNavigate = { viewModel.navigateTo(it) },
                 onShowDetail = { viewModel.showFileDetail(it) },
-                onSelect = { viewModel.selectFile(it) },
-                onDeselect = { viewModel.selectFile(null) },
+                onToggleSelect = { viewModel.toggleSelection(it) },
+                onEnterMultiSelect = { viewModel.enterMultiSelect(it) },
                 onRetry = { viewModel.loadFiles() }
             )
 
-            // 传输进度弹窗（传输中 + 完成后都显示）
+            // 传输进度弹窗
             uiState.transferState?.let { state ->
                 TransferProgressDialog(
                     state = state,
@@ -120,13 +131,13 @@ fun FileManagerPanel(
             }
         }
 
-        // 底部选中操作栏
-        if (uiState.selectedFile != null && !uiState.showFileDetail) {
-            FileActionBottomBar(
-                onCopy = { viewModel.copyToClipboard() },
-                onCut = { viewModel.cutToClipboard() },
-                onRename = { viewModel.showRenameDialog() },
-                onDelete = { viewModel.confirmDelete() },
+        // 底部多选操作栏
+        if (uiState.isMultiSelectMode && uiState.selectedPaths.isNotEmpty()) {
+            MultiFileActionBottomBar(
+                onCopy = { viewModel.copySelectedToClipboard() },
+                onCut = { viewModel.cutSelectedToClipboard() },
+                onDelete = { viewModel.confirmBatchDelete() },
+                onDownload = { viewModel.downloadSelectedFiles() },
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
@@ -142,6 +153,7 @@ fun FileManagerPanel(
             onDismiss = { viewModel.dismissFileDetail() },
             onViewText = { viewModel.viewTextFile(uiState.selectedFile!!) },
             onDownload = { viewModel.downloadFile(uiState.selectedFile!!) },
+            onRename = { viewModel.showRenameDialog() },
             onCopyPath = { clipboardManager.setText(AnnotatedString(uiState.selectedFile!!.path)) }
         )
     }
@@ -181,6 +193,17 @@ fun FileManagerPanel(
         )
     }
 
+    if (uiState.showBatchDeleteConfirm) {
+        val count = uiState.selectedPaths.size
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissBatchDeleteConfirm() },
+            title = { Text("确认批量删除") },
+            text = { Text("确定要删除这 $count 个文件吗？文件夹将递归删除。") },
+            confirmButton = { TextButton(onClick = { viewModel.batchDelete() }) { Text("删除", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { viewModel.dismissBatchDeleteConfirm() }) { Text("取消") } }
+        )
+    }
+
     // 根目录按返回键 → 确认退出
     if (showExitConfirm) {
         AlertDialog(
@@ -193,7 +216,40 @@ fun FileManagerPanel(
     }
 }
 
-// ========== 子组件 ==========
+// ========== 多选顶部栏 ==========
+
+@Composable
+private fun MultiSelectTopBar(
+    selectedCount: Int,
+    totalCount: Int,
+    onClose: () -> Unit,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit
+) {
+    Surface(modifier = Modifier.fillMaxWidth(), tonalElevation = 2.dp) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "退出多选")
+            }
+            Text(
+                text = "已选 $selectedCount 项",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f).padding(start = 4.dp)
+            )
+            val allSelected = selectedCount >= totalCount
+            TextButton(onClick = if (allSelected) onDeselectAll else onSelectAll) {
+                Text(if (allSelected) "取消全选" else "全选")
+            }
+        }
+    }
+}
+
+// ========== 路径栏 ==========
 
 @Composable
 private fun FileManagerPathBar(
@@ -219,7 +275,6 @@ private fun FileManagerPathBar(
         IconButton(onClick = onNavigateUp, enabled = currentPath != "/") {
             Icon(Icons.Default.ArrowUpward, contentDescription = "返回上级")
         }
-        // 路径可点击，打开编辑弹窗
         Text(
             text = currentPath,
             style = MaterialTheme.typography.bodyMedium,
@@ -275,7 +330,6 @@ private fun FileManagerPathBar(
         }
     }
 
-    // 路径编辑弹窗
     if (showPathDialog) {
         PathEditDialog(
             currentPath = currentPath,
@@ -285,9 +339,11 @@ private fun FileManagerPathBar(
     }
 }
 
+// ========== 剪贴板提示 ==========
+
 @Composable
 private fun ClipboardBar(
-    fileName: String,
+    fileCount: Int,
     isCut: Boolean,
     onPaste: () -> Unit,
     onCancel: () -> Unit
@@ -304,7 +360,7 @@ private fun ClipboardBar(
             Icon(if (isCut) Icons.Default.ContentCut else Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text(
-                "${if (isCut) "剪切" else "复制"}: $fileName",
+                "${if (isCut) "剪切" else "复制"}: $fileCount 个文件",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f)
             )
@@ -314,18 +370,20 @@ private fun ClipboardBar(
     }
 }
 
+// ========== 文件列表 ==========
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileManagerContent(
     isLoading: Boolean,
     error: String?,
     files: List<RemoteFile>,
-    selectedPath: String?,
-    hasSelection: Boolean,
+    isMultiSelectMode: Boolean,
+    selectedFiles: Set<String>,
     onNavigate: (String) -> Unit,
     onShowDetail: (RemoteFile) -> Unit,
-    onSelect: (RemoteFile) -> Unit,
-    onDeselect: () -> Unit,
+    onToggleSelect: (RemoteFile) -> Unit,
+    onEnterMultiSelect: (RemoteFile) -> Unit,
     onRetry: () -> Unit
 ) {
     when {
@@ -355,38 +413,46 @@ private fun FileManagerContent(
             }
         }
         else -> {
-            // 选中时底部留出空间给操作栏
-            val bottomPadding = if (hasSelection) 56.dp else 0.dp
+            val bottomPadding = if (isMultiSelectMode) 56.dp else 0.dp
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(items = files, key = { it.path }) { file ->
                     FileListItem(
                         file = file,
-                        isSelected = selectedPath == file.path,
+                        isSelected = file.path in selectedFiles,
+                        isMultiSelectMode = isMultiSelectMode,
                         onClick = {
-                            when {
-                                // 已选中 → 取消选中
-                                selectedPath == file.path -> onDeselect()
-                                // 目录或符号链接 → 进入
-                                file.isDirectory || file.isSymlink -> onNavigate(file.path)
-                                // 文件 → 显示详情
-                                else -> onShowDetail(file)
+                            if (isMultiSelectMode) {
+                                onToggleSelect(file)
+                            } else {
+                                when {
+                                    file.isDirectory || file.isSymlink -> onNavigate(file.path)
+                                    else -> onShowDetail(file)
+                                }
                             }
                         },
-                        onLongClick = { onSelect(file) }
+                        onLongClick = {
+                            if (isMultiSelectMode) {
+                                onToggleSelect(file)
+                            } else {
+                                onEnterMultiSelect(file)
+                            }
+                        }
                     )
                 }
-                // 底部占位，防止被操作栏遮挡
                 item { Spacer(Modifier.height(bottomPadding)) }
             }
         }
     }
 }
 
+// ========== 文件列表项 ==========
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileListItem(
     file: RemoteFile,
     isSelected: Boolean,
+    isMultiSelectMode: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -417,7 +483,6 @@ private fun FileListItem(
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(file.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // 符号链接显示目标路径
                 if (file.isSymlink && file.linkTarget != null) {
                     Text(
                         "→ ${file.linkTarget}",
@@ -435,39 +500,92 @@ private fun FileListItem(
                     }
                 }
             }
+            // 多选模式显示复选框（右侧）
+            if (isMultiSelectMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onClick() },
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+// ========== 底部多选操作栏 ==========
+
+@Composable
+private fun MultiFileActionBottomBar(
+    onCopy: () -> Unit,
+    onCut: () -> Unit,
+    onDelete: () -> Unit,
+    onDownload: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        tonalElevation = 3.dp,
+        shadowElevation = 8.dp
+    ) {
+        Column {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                ActionIconButton(
+                    icon = Icons.Default.ContentCopy,
+                    label = "复制",
+                    onClick = onCopy
+                )
+                ActionIconButton(
+                    icon = Icons.Default.ContentCut,
+                    label = "剪切",
+                    onClick = onCut
+                )
+                ActionIconButton(
+                    icon = Icons.Default.Delete,
+                    label = "删除",
+                    isDestructive = true,
+                    onClick = onDelete
+                )
+                ActionIconButton(
+                    icon = Icons.Default.Download,
+                    label = "下载",
+                    onClick = onDownload
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun FileActionBottomBar(
-    onCopy: () -> Unit,
-    onCut: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+private fun ActionIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isDestructive: Boolean = false,
+    onClick: () -> Unit
 ) {
-    Surface(modifier = modifier.fillMaxWidth(), tonalElevation = 8.dp, shadowElevation = 8.dp) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            TextButton(onClick = onCopy) {
-                Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp)); Text("复制")
-            }
-            TextButton(onClick = onCut) {
-                Icon(Icons.Default.ContentCut, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp)); Text("剪切")
-            }
-            TextButton(onClick = onRename) {
-                Icon(Icons.Default.DriveFileRenameOutline, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp)); Text("重命名")
-            }
-            TextButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.width(4.dp)); Text("删除", color = MaterialTheme.colorScheme.error)
-            }
-        }
+    val color = if (isDestructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(22.dp),
+            tint = color
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color
+        )
     }
 }

@@ -123,39 +123,93 @@ fun ScriptHelpDialog(onDismiss: () -> Unit) {
                 // 变量
                 HelpSection("变量替换")
                 HelpText("使用 \$变量名 或 \${变量名} 引用变量。变量来源：")
-                HelpText("  1. 脚本编辑页的「变量」卡片中定义")
+                HelpText("  1. 脚本编辑页的「常量」卡片中定义")
                 HelpText("  2. set 命令赋值")
                 HelpText("  3. set /p 交互输入")
                 HelpText("  4. input 命令自动生成的 \$INPUT")
+                HelpText("  5. capture 命令捕获的输出")
                 HelpCode(
-                    "# 变量卡片定义: target=com.example.app\n" +
+                    "# 常量卡片定义: target=com.example.app\n" +
                     "shell am force-stop \$target\n" +
                     "shell pm clear \$target"
                 )
 
-                // 完整示例
-                HelpSection("完整示例")
-                HelpText("交互式应用卸载脚本（使用 set /p）：")
+                // 输出捕获
+                HelpSection("输出捕获 (capture)")
+                HelpText("capture VAR=<命令> 执行命令并捕获输出到变量，后续可用 if/goto/echo 引用。")
                 HelpCode(
-                    "# 交互式卸载脚本\n" +
-                    "set /p PKG=请输入要卸载的包名:\n" +
-                    "confirm 确认卸载 \$PKG ？\n" +
-                    "shell pm uninstall \$PKG\n" +
-                    "delay 2\n" +
-                    "# 验证卸载结果\n" +
-                    "! shell pm list packages | grep \$PKG"
+                    "capture BRAND=shell getprop ro.product.brand\n" +
+                    "echo 设备品牌: \$BRAND\n" +
+                    "if \$BRAND==\"google\" goto pixel_device"
                 )
 
-                HelpText("带重试的应用安装脚本：")
+                // 控制流
+                HelpSection("条件判断 (if)")
+                HelpText("if <条件> <动作> 条件满足时执行动作，否则跳过。支持比较、定义检查、路径检查。")
+                HelpText("条件格式：")
+                HelpText("  \$VAR==\"值\"        变量等于指定值")
+                HelpText("  \$VAR!=\"值\"        变量不等于指定值")
+                HelpText("  defined \$VAR       变量已定义且非空")
+                HelpText("  not defined \$VAR   变量未定义或为空")
+                HelpText("  exists:路径         文件存在")
+                HelpText("  not_exists:路径     文件不存在")
+                HelpText("支持的动作：goto、echo、set、capture")
                 HelpCode(
-                    "# 设置变量\n" +
-                    "set APK=/sdcard/app.apk\n" +
-                    "set MAX=3\n" +
-                    "set /a TRY=\$MAX\n" +
-                    "echo 开始安装 \$APK\n" +
-                    "shell pm install \$APK\n" +
-                    "set /a TRY=\$TRY-1\n" +
-                    "echo 剩余尝试次数: \$TRY"
+                    "if \$BRAND==\"samsung\" goto samsung\n" +
+                    "if defined \$INPUT echo 已输入: \$INPUT\n" +
+                    "if exists:/sdcard/test.txt goto found\n" +
+                    "echo 三星设备\n" +
+                    "shell settings put global multi_window_enabled 1\n" +
+                    ":samsung"
+                )
+
+                // 标签与跳转
+                HelpSection("标签与跳转 (goto / :label)")
+                HelpText(":label_name 定义一个标签，goto label_name 跳转到该标签位置继续执行。标签名不能含空格。")
+                HelpCode(
+                    "captURE BRAND=shell getprop ro.product.brand\n" +
+                    "if \$BRAND==\"samsung\" goto samsung_setup\n" +
+                    "echo 非三星设备\n" +
+                    "goto end\n" +
+                    ":samsung_setup\n" +
+                    "echo 三星设备专用配置\n" +
+                    ":end\n" +
+                    "echo 完成"
+                )
+
+                // 完整示例
+                HelpSection("完整示例")
+                HelpText("综合演示脚本（预置在「自定义」分类）：")
+                HelpCode(
+                    "# 1. 基本命令与输出捕获\n" +
+                    "shell getprop ro.product.model\n" +
+                    "capture BRAND=shell getprop ro.product.brand\n" +
+                    "echo 品牌: \$BRAND\n" +
+                    "# 2. if + goto 控制流\n" +
+                    "if \$BRAND==\"samsung\" goto samsung\n" +
+                    "goto ask\n" +
+                    ":samsung\n" +
+                    "shell settings put global multi_window_enabled 1\n" +
+                    "# 3. 变量赋值与交互\n" +
+                    ":ask\n" +
+                    "set DEF_PKG=com.android.chrome\n" +
+                    "set /p PKG=请输入包名:\n" +
+                    "if \$PKG!=\"\" goto ok\n" +
+                    "set PKG=\$DEF_PKG\n" +
+                    ":ok\n" +
+                    "# 4. input + confirm\n" +
+                    "input 请输入操作:\n" +
+                    "if \$INPUT==\"uninstall\" goto uninstall\n" +
+                    "goto end\n" +
+                    ":uninstall\n" +
+                    "confirm 确认卸载 \$PKG？\n" +
+                    "! shell pm uninstall \$PKG\n" +
+                    "delay 2\n" +
+                    "# 5. 算术运算\n" +
+                    "set /a SCORE=85+15\n" +
+                    "echo 评分: \$SCORE\n" +
+                    ":end\n" +
+                    "echo 完成"
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -172,6 +226,10 @@ fun ScriptHelpDialog(onDismiss: () -> Unit) {
                     "set /p VAR=提示 交互输入→\$VAR\n" +
                     "set /a VAR=表达式 算术运算\n" +
                     "echo 文本      输出文本\n" +
+                    "capture VAR=命令 输出捕获\n" +
+                    "if 条件 动作   条件判断\n" +
+                    "goto label     跳转到标签\n" +
+                    ":label         标签标记\n" +
                     "\$VAR           变量替换"
                 )
             }
