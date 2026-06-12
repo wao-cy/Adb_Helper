@@ -19,6 +19,7 @@ data class SettingsUiState(
     val language: String = "zh",
     val localSavePath: String = "",
     val cacheSize: Long = 0L,
+    val defaultTab: Int = 0,
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -44,7 +45,8 @@ class SettingsViewModel @Inject constructor(
                 language = settingsRepository.getLanguage(),
                 darkMode = settingsRepository.darkModeFlow.value,
                 keepScreenOn = settingsRepository.keepScreenOnFlow.value,
-                localSavePath = settingsRepository.localSavePathFlow.value
+                localSavePath = settingsRepository.localSavePathFlow.value,
+                defaultTab = settingsRepository.defaultTabFlow.value
             )
         }
     }
@@ -67,6 +69,13 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(localSavePath = path)
         viewModelScope.launch {
             settingsRepository.updateLocalSavePath(path)
+        }
+    }
+
+    fun updateDefaultTab(index: Int) {
+        _uiState.value = _uiState.value.copy(defaultTab = index)
+        viewModelScope.launch {
+            settingsRepository.updateDefaultTab(index)
         }
     }
 

@@ -63,7 +63,8 @@ class FileManagerViewModel @Inject constructor(
         }
     }
 
-    fun loadFiles(path: String = _uiState.value.currentPath) {
+    fun loadFiles(path: String = _uiState.value.currentPath, force: Boolean = false) {
+        if (!force && path == _uiState.value.currentPath && _uiState.value.files.isNotEmpty()) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
@@ -198,7 +199,7 @@ class FileManagerViewModel @Inject constructor(
                 val cmd = if (file.isDirectory) "rm -rf \"${file.path}\"" else "rm \"${file.path}\""
                 execShell(cmd)
                 showMessage("已删除: ${file.name}")
-                loadFiles()
+                loadFiles(force = true)
             } catch (e: Exception) {
                 showMessage("删除失败: ${e.message}")
             }
@@ -231,7 +232,7 @@ class FileManagerViewModel @Inject constructor(
                 }
                 showMessage("删除完成: $success 成功, $fail 失败")
                 exitMultiSelect()
-                loadFiles()
+                loadFiles(force = true)
             } catch (e: Exception) {
                 showMessage("批量删除失败: ${e.message}")
             }
@@ -255,7 +256,7 @@ class FileManagerViewModel @Inject constructor(
             try {
                 execShell("mv \"${file.path}\" \"$newPath\"")
                 showMessage("已重命名为: $newName")
-                loadFiles()
+                loadFiles(force = true)
             } catch (e: Exception) {
                 showMessage("重命名失败: ${e.message}")
             }
@@ -277,7 +278,7 @@ class FileManagerViewModel @Inject constructor(
                 val path = "${_uiState.value.currentPath}/$name"
                 execShell("mkdir \"$path\"")
                 showMessage("已创建文件夹: $name")
-                loadFiles()
+                loadFiles(force = true)
             } catch (e: Exception) {
                 showMessage("创建失败: ${e.message}")
             }
@@ -334,7 +335,7 @@ class FileManagerViewModel @Inject constructor(
                 }
                 _uiState.value = _uiState.value.copy(clipboardFiles = emptyList(), clipboardMode = null)
                 showMessage("粘贴完成: $success 成功${if (fail > 0) ", $fail 失败" else ""}")
-                loadFiles()
+                loadFiles(force = true)
             } catch (e: Exception) {
                 showMessage("粘贴失败: ${e.message}")
             }
@@ -608,7 +609,7 @@ class FileManagerViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(
                         transferState = _uiState.value.transferState?.copy(resultMessage = "已上传: $uniqueName")
                     )
-                    loadFiles()
+                    loadFiles(force = true)
                 } else {
                     _uiState.value = _uiState.value.copy(
                         transferState = _uiState.value.transferState?.copy(resultMessage = "上传失败", isError = true)

@@ -144,9 +144,13 @@ fun AppManagerPanel(
                 Icon(Icons.Default.FileUpload, stringResource(R.string.action_push_apk))
             }
         }
-    }
 
-    // Push 选项对话框
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+        )
+    }
+        // Push 选项对话框
     if (uiState.showPushDialog) {
         PushOptionsDialog(
             onSelectFile = { viewModel.dismissPushDialog(); filePickerLauncher.launch("application/vnd.android.package-archive") },
@@ -189,6 +193,4 @@ fun AppManagerPanel(
         )
     }
 
-    // Snackbar
-    SnackbarHost(hostState = snackbarHostState, modifier = Modifier.padding(bottom = 16.dp))
 }

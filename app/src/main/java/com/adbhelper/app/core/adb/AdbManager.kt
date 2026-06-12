@@ -118,14 +118,25 @@ class AdbManager @Inject constructor(
             if (!context.cacheDir.exists()) {
                 context.cacheDir.mkdirs()
             }
-            // 清理旧的 ADB 持久化数据，避免启动时重连已离线的 TCP 设备导致卡顿
-            cleanAdbPersistDir()
             val result = executeAdbCommand("start-server")
             isServerRunning = result.contains("daemon started successfully")
                     || result.isBlank()
                     || (!result.contains("error") && !result.contains("failed"))
-            if (isServerRunning) Result.success(result)
-            else Result.failure(Exception(result.trim()))
+            if (isServerRunning) return@withContext Result.success(result)
+
+            // 首次启动失败（常见于低版本 ADB 在 Android 10+ 触发 fdsan crash），
+            // 等 500ms 后重试一次
+            delay(500)
+            if (checkServerPort()) {
+                isServerRunning = true
+                return@withContext Result.success("daemon started on retry")
+            }
+            val retryResult = executeAdbCommand("start-server")
+            isServerRunning = retryResult.contains("daemon started successfully")
+                    || retryResult.isBlank()
+                    || (!retryResult.contains("error") && !retryResult.contains("failed"))
+            if (isServerRunning) Result.success(retryResult)
+            else Result.failure(Exception(retryResult.trim()))
         } catch (e: Exception) {
             isServerRunning = false
             Result.failure(e)
@@ -227,11 +238,18 @@ class AdbManager @Inject constructor(
                     "unauthorized" -> DeviceState.UNAUTHORIZED
                     else -> DeviceState.UNKNOWN
                 }
-                val model = if (parts.size > 2 && parts[2].startsWith("model:")) {
-                    parts[2].removePrefix("model:")
-                } else null
+                var model: String? = null
+                var product: String? = null
+                var deviceName: String? = null
+                for (i in 2 until parts.size) {
+                    when {
+                        parts[i].startsWith("model:") -> model = parts[i].removePrefix("model:")
+                        parts[i].startsWith("product:") -> product = parts[i].removePrefix("product:")
+                        parts[i].startsWith("device:") -> deviceName = parts[i].removePrefix("device:")
+                    }
+                }
 
-                devices.add(AdbDevice(serial, state, model))
+                devices.add(AdbDevice(serial, state, model, product, deviceName))
             }
         }
         return devices

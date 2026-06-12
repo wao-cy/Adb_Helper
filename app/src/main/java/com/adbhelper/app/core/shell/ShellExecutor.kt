@@ -98,5 +98,19 @@ class ShellExecutor @Inject constructor(
     suspend fun getScreenSize(serial: String? = null): String = execute("wm size", serial).output
     suspend fun getMemInfo(serial: String? = null): String = execute("cat /proc/meminfo", serial).output
 
+    // ========== 输入模拟 ==========
+
+    suspend fun inputKeyEvent(code: Int, serial: String? = null): ShellResult =
+        execute("input keyevent $code", serial)
+
+    suspend fun inputTap(x: Int, y: Int, serial: String? = null): ShellResult =
+        execute("input tap $x $y", serial)
+
+    suspend fun inputSwipe(x1: Int, y1: Int, x2: Int, y2: Int, serial: String? = null): ShellResult =
+        execute("input swipe $x1 $y1 $x2 $y2", serial)
+
+    suspend fun inputText(text: String, serial: String? = null): ShellResult =
+        execute("input text ${text.replace("'", "\\'")}", serial)
+
     enum class RebootMode { NORMAL, BOOTLOADER, RECOVERY, FASTBOOT }
 }

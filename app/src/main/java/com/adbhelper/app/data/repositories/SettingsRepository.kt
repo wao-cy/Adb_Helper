@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,6 +27,7 @@ class SettingsRepository @Inject constructor(
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val KEY_LOCAL_SAVE_PATH = stringPreferencesKey("local_save_path")
         val KEY_CONNECT_HISTORY = stringPreferencesKey("connect_history")
+        val KEY_DEFAULT_TAB = intPreferencesKey("default_tab")
 
         fun formatCacheSize(bytes: Long): String {
             return when {
@@ -41,6 +43,7 @@ class SettingsRepository @Inject constructor(
     val keepScreenOnFlow = MutableStateFlow(true)
     val localSavePathFlow = MutableStateFlow(defaultSavePath())
     val connectHistoryFlow = MutableStateFlow<List<String>>(emptyList())
+    val defaultTabFlow = MutableStateFlow(0)
 
     suspend fun loadSettings() {
         val prefs = context.settingsDataStore.data.first()
@@ -54,6 +57,7 @@ class SettingsRepository @Inject constructor(
         keepScreenOnFlow.value = keepScreenOn
         localSavePathFlow.value = localSavePath
         connectHistoryFlow.value = history
+        defaultTabFlow.value = prefs[KEY_DEFAULT_TAB] ?: 0
 
         File(localSavePath).mkdirs()
     }
@@ -104,6 +108,13 @@ class SettingsRepository @Inject constructor(
         connectHistoryFlow.value = newList
         context.settingsDataStore.edit { prefs ->
             prefs[KEY_CONNECT_HISTORY] = newList.joinToString(",")
+        }
+    }
+
+    suspend fun updateDefaultTab(index: Int) {
+        defaultTabFlow.value = index
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_DEFAULT_TAB] = index
         }
     }
 }

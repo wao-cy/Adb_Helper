@@ -229,4 +229,22 @@
     <string name="permission_limited">应用列表权限受限</string>
     <string name="permission_limited_msg">当前只能看到本应用自身，无法获取完整的已安装应用列表。\n\n请在系统设置中授予「获取应用列表」或「读取应用列表」权限。</string>
     <string name="go_to_settings">前往设置</string>
+
+    <!-- 默认设备 Tab -->
+    <string name="default_device_tab">默认设备 Tab</string>
+
+    <!-- 模拟遥控 -->
+    <string name="remote_control">模拟遥控</string>
+    <string name="screen_on">亮屏</string>
+    <string name="screen_off">息屏</string>
+    <string name="volume_up">音量+</string>
+    <string name="volume_down">音量-</string>
+    <string name="tap_coord">点击坐标</string>
+    <string name="swipe">滑动</string>
+    <string name="input_text">输入文本</string>
+    <string name="send">发送</string>
+    <string name="x_coord">X</string>
+    <string name="y_coord">Y</string>
+    <string name="remote_control_success">发送成功</string>
+    <string name="remote_control_failed">发送失败</string>
 </resources>

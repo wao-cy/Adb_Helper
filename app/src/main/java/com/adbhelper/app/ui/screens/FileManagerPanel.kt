@@ -292,7 +292,7 @@ private fun FileManagerPathBar(
             Icon(Icons.Default.FileUpload, contentDescription = "上传文件")
         }
         IconButton(onClick = { showMenu = true }) {
-            Icon(Icons.Default.MoreVert, contentDescription = "更多")
+            Icon(Icons.Default.FilterList, contentDescription = "筛选")
         }
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false; showSortSubmenu = false }) {
             DropdownMenuItem(
@@ -436,7 +436,8 @@ private fun FileManagerContent(
                             } else {
                                 onEnterMultiSelect(file)
                             }
-                        }
+                        },
+                        onShowDetail = { onShowDetail(file) }
                     )
                 }
                 item { Spacer(Modifier.height(bottomPadding)) }
@@ -454,7 +455,8 @@ private fun FileListItem(
     isSelected: Boolean,
     isMultiSelectMode: Boolean,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    onShowDetail: () -> Unit
 ) {
     Surface(
         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
@@ -500,6 +502,13 @@ private fun FileListItem(
                     }
                 }
             }
+            // 文件夹行：点击直接进入详情弹窗（非多选模式）
+            if (!isMultiSelectMode && file.isDirectory) {
+                IconButton(onClick = onShowDetail) {
+                    Icon(Icons.Default.MoreVert, "更多")
+                }
+            }
+
             // 多选模式显示复选框（右侧）
             if (isMultiSelectMode) {
                 Checkbox(

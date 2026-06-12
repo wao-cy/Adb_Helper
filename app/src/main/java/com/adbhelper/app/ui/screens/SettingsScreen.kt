@@ -26,7 +26,7 @@ import com.adbhelper.app.R
 import com.adbhelper.app.data.repositories.SettingsRepository
 import com.adbhelper.app.ui.viewmodels.SettingsViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
@@ -121,6 +121,35 @@ fun SettingsScreen(
                             checked = uiState.keepScreenOn,
                             onCheckedChange = { viewModel.updateKeepScreenOn(it) }
                         )
+                    }
+                }
+            }
+
+            // 默认设备 Tab
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.default_device_tab),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val tabNames = listOf("设备信息", "应用管理", "文件管理", "模拟遥控")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        tabNames.forEachIndexed { index, name ->
+                            FilterChip(
+                                selected = uiState.defaultTab == index,
+                                onClick = { viewModel.updateDefaultTab(index) },
+                                label = { Text(name, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
                     }
                 }
             }

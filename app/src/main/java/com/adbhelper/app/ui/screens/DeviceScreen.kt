@@ -20,6 +20,8 @@ import com.adbhelper.app.core.shell.ShellExecutor
 import com.adbhelper.app.ui.viewmodels.AppManagerViewModel
 import com.adbhelper.app.ui.viewmodels.DeviceViewModel
 import com.adbhelper.app.ui.viewmodels.FileManagerViewModel
+import com.adbhelper.app.ui.viewmodels.RemoteControlViewModel
+import com.adbhelper.app.ui.viewmodels.SettingsViewModel
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,10 +30,13 @@ fun DeviceScreen(
     onNavigateBack: () -> Unit,
     viewModel: DeviceViewModel = hiltViewModel(),
     appManagerViewModel: AppManagerViewModel = hiltViewModel(),
-    fileManagerViewModel: FileManagerViewModel = hiltViewModel()
+    fileManagerViewModel: FileManagerViewModel = hiltViewModel(),
+    remoteControlViewModel: RemoteControlViewModel = hiltViewModel(),
+    settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val tabs = listOf("设备信息", "应用管理", "文件管理")
+    val defaultTabPage by settingsViewModel.settingsRepository.defaultTabFlow.collectAsState()
+    val tabs = listOf("设备信息", "应用管理", "文件管理", "模拟遥控")
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
 
@@ -48,6 +53,13 @@ fun DeviceScreen(
         viewModel.loadDeviceInfoIfNeeded()
     }
 
+    // 首次进入或默认 Tab 设置变更时跳转
+    LaunchedEffect(defaultTabPage) {
+        if (pagerState.currentPage != defaultTabPage) {
+            pagerState.animateScrollToPage(defaultTabPage)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -61,8 +73,8 @@ fun DeviceScreen(
                     IconButton(onClick = {
                         when (pagerState.currentPage) {
                             0 -> viewModel.loadDeviceInfo()
-                            1 -> appManagerViewModel.loadApps()
-                            2 -> fileManagerViewModel.loadFiles()
+                            1 -> appManagerViewModel.loadApps(force = true)
+                            2 -> fileManagerViewModel.loadFiles(force = true)
                         }
                     }) {
                         Icon(Icons.Default.Refresh, stringResource(R.string.refresh))
@@ -119,6 +131,7 @@ fun DeviceScreen(
                     0 -> DeviceInfoContent(uiState = uiState, viewModel = viewModel)
                     1 -> AppManagerPanel(viewModel = appManagerViewModel)
                     2 -> FileManagerPanel(isActive = pagerState.currentPage == 2, onNavigateBack = onNavigateBack, viewModel = fileManagerViewModel)
+                    3 -> RemoteControlPanel(viewModel = remoteControlViewModel)
                 }
             }
         }

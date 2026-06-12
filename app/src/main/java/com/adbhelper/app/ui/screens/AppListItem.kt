@@ -29,7 +29,7 @@ fun AppListItem(
     onShowDetail: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    var showConfirmDialog by remember { mutableStateOf<ConfirmAction?>(null) }
+    var showUninstallConfirm by remember { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
 
     ListItem(
@@ -133,7 +133,7 @@ fun AppListItem(
                         text = { Text(stringResource(R.string.action_force_stop)) },
                         onClick = {
                             showMenu = false
-                            showConfirmDialog = ConfirmAction.FORCE_STOP
+                            onForceStop()
                         },
                         leadingIcon = { Icon(Icons.Default.Stop, null) }
                     )
@@ -141,7 +141,7 @@ fun AppListItem(
                         text = { Text(stringResource(R.string.action_clear_data)) },
                         onClick = {
                             showMenu = false
-                            showConfirmDialog = ConfirmAction.CLEAR_DATA
+                            onClearData()
                         },
                         leadingIcon = { Icon(Icons.Default.DeleteSweep, null) }
                     )
@@ -167,7 +167,7 @@ fun AppListItem(
                             text = { Text(stringResource(R.string.action_disable)) },
                             onClick = {
                                 showMenu = false
-                                showConfirmDialog = ConfirmAction.DISABLE
+                                onDisable()
                             },
                             leadingIcon = { Icon(Icons.Default.Block, null) }
                         )
@@ -177,7 +177,7 @@ fun AppListItem(
                             text = { Text(stringResource(R.string.action_uninstall)) },
                             onClick = {
                                 showMenu = false
-                                showConfirmDialog = ConfirmAction.UNINSTALL
+                                showUninstallConfirm = true
                             },
                             leadingIcon = {
                                 Icon(
@@ -195,59 +195,28 @@ fun AppListItem(
 
     HorizontalDivider()
 
-    // 确认对话框
-    showConfirmDialog?.let { action ->
+    // 卸载确认对话框（仅卸载保留确认弹窗）
+    if (showUninstallConfirm) {
         AlertDialog(
-            onDismissRequest = { showConfirmDialog = null },
-            title = {
-                Text(
-                    when (action) {
-                        ConfirmAction.FORCE_STOP -> stringResource(R.string.confirm_force_stop)
-                        ConfirmAction.CLEAR_DATA -> stringResource(R.string.confirm_clear_data)
-                        ConfirmAction.UNINSTALL -> stringResource(R.string.confirm_uninstall)
-                        ConfirmAction.DISABLE -> stringResource(R.string.confirm_disable)
-                    }
-                )
-            },
-            text = {
-                Text(
-                    when (action) {
-                        ConfirmAction.FORCE_STOP -> stringResource(R.string.confirm_force_stop_msg, app.packageName)
-                        ConfirmAction.CLEAR_DATA -> stringResource(R.string.confirm_clear_data_msg, app.packageName)
-                        ConfirmAction.UNINSTALL -> stringResource(R.string.confirm_uninstall_msg, app.packageName)
-                        ConfirmAction.DISABLE -> stringResource(R.string.confirm_disable_msg, app.packageName)
-                    }
-                )
-            },
+            onDismissRequest = { showUninstallConfirm = false },
+            title = { Text(stringResource(R.string.confirm_uninstall)) },
+            text = { Text(stringResource(R.string.confirm_uninstall_msg, app.packageName)) },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showConfirmDialog = null
-                        when (action) {
-                            ConfirmAction.FORCE_STOP -> onForceStop()
-                            ConfirmAction.CLEAR_DATA -> onClearData()
-                            ConfirmAction.UNINSTALL -> onUninstall()
-                            ConfirmAction.DISABLE -> onDisable()
-                        }
+                        showUninstallConfirm = false
+                        onUninstall()
                     },
-                    colors = if (action == ConfirmAction.UNINSTALL) {
-                        ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    } else {
-                        ButtonDefaults.textButtonColors()
-                    }
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                 ) {
                     Text(stringResource(R.string.ok))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirmDialog = null }) {
+                TextButton(onClick = { showUninstallConfirm = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             }
         )
     }
-}
-
-enum class ConfirmAction {
-    FORCE_STOP, CLEAR_DATA, UNINSTALL, DISABLE
 }

@@ -88,7 +88,7 @@ fun DeviceCard(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = device.model ?: device.serial,
+                    text = device.model ?: device.product ?: device.device ?: device.serial,
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(

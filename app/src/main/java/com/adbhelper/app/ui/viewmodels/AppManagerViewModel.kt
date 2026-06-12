@@ -50,7 +50,7 @@ class AppManagerViewModel @Inject constructor(
         settingsRepository = settingsRepository,
         uiState = _uiState,
         scope = viewModelScope,
-        onAppsChanged = { loadApps() },
+        onAppsChanged = { loadApps(force = true) },
         onMessage = { msg, success -> showMessage(msg, success) },
         getDeviceSerial = { getDeviceSerial() }
     )
@@ -61,7 +61,8 @@ class AppManagerViewModel @Inject constructor(
 
     // ========== 应用列表 ==========
 
-    fun loadApps() {
+    fun loadApps(force: Boolean = false) {
+        if (!force && _uiState.value.apps.isNotEmpty()) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
@@ -302,7 +303,7 @@ class AppManagerViewModel @Inject constructor(
                 val serial = getDeviceSerial()
                 val result = shellExecutor.uninstallPackage(packageName, serial)
                 val success = result.output.contains("Success", ignoreCase = true)
-                if (success) loadApps()
+                if (success) loadApps(force = true)
                 showMessage(if (success) "已卸载 $packageName" else "卸载失败: ${result.output.trim()}", success)
             } catch (e: Exception) { showMessage("卸载失败: ${e.message}", false) }
         }
@@ -326,7 +327,7 @@ class AppManagerViewModel @Inject constructor(
                 val serial = getDeviceSerial()
                 val result = shellExecutor.disableApp(packageName, serial)
                 val success = result.output.contains("disabled", ignoreCase = true) || result.output.isBlank()
-                if (success) loadApps()
+                if (success) loadApps(force = true)
                 showMessage(if (success) "已禁用 $packageName" else "禁用失败: ${result.output.trim()}", success)
             } catch (e: Exception) { showMessage("禁用失败: ${e.message}", false) }
         }
@@ -338,7 +339,7 @@ class AppManagerViewModel @Inject constructor(
                 val serial = getDeviceSerial()
                 val result = shellExecutor.enableApp(packageName, serial)
                 val success = result.output.contains("enabled", ignoreCase = true) || result.output.isBlank()
-                if (success) loadApps()
+                if (success) loadApps(force = true)
                 showMessage(if (success) "已启用 $packageName" else "启用失败: ${result.output.trim()}", success)
             } catch (e: Exception) { showMessage("启用失败: ${e.message}", false) }
         }

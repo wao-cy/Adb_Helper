@@ -170,7 +170,6 @@ class HomeViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(selectedDevice = null)
                     deviceSession.select(null)
                 }
-                // 等待 ADB server 完全移除连接后再刷新
                 kotlinx.coroutines.delay(300)
                 refreshDevices()
             } catch (e: Exception) {
