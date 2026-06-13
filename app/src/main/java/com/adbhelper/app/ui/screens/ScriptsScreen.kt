@@ -86,7 +86,9 @@ fun ScriptsScreen(
                     Tab(
                         selected = pagerState.currentPage == index,
                         onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } },
-                        text = { Text(ScriptsUiState.categoryDisplayNames[category] ?: category) }
+                        text = { Text(ScriptsUiState.categoryDisplayNames[category] ?: category) },
+                        selectedContentColor = MaterialTheme.colorScheme.primary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }

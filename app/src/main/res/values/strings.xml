@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ADB 助手</string>
+    <string name="app_name">汪汪ADB助手</string>
 
     <!-- 底部导航 -->
     <string name="home">首页</string>
@@ -151,8 +151,7 @@
     <string name="feature_script">脚本管理与执行</string>
     <string name="feature_device_info">设备信息显示</string>
     <string name="feature_file">文件操作</string>
-    <string name="credits_adbtool">基于Vibe Coding开发,作者邮箱:wao.cy@qq.com</string>
-    <string name="credits_compose">使用 Jetpack Compose 构建</string>
+    <string name="credits_adbtool">使用 Jetpack Compose 构建,作者邮箱:wao.cy@qq.com</string>
     <string name="press_back_again_to_exit">再按一次返回键退出应用</string>
 
     <!-- 无线调试配对 -->

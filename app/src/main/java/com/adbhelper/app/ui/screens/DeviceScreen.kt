@@ -120,7 +120,9 @@ fun DeviceScreen(
                     Tab(
                         selected = pagerState.currentPage == index,
                         onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } },
-                        text = { Text(title) }
+                        text = { Text(title) },
+                        selectedContentColor = MaterialTheme.colorScheme.primary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }

@@ -118,25 +118,54 @@ class AdbManager @Inject constructor(
             if (!context.cacheDir.exists()) {
                 context.cacheDir.mkdirs()
             }
+
+            // 前台模式启动 ADB server（不写 /sdcard/adb.PID.log，避免 Android 11+ 权限限制）
+            // 后台运行，进程引用保留以便后续清理
+            val args = arrayOf(adbPath, "-P", DEFAULT_ADB_PORT.toString(), "nodaemon", "server")
+            Log.d(TAG, "starting adb nodaemon server: ${args.joinToString(" ")}")
+            val pb = ProcessBuilder(*args)
+            val adbDir = File(context.filesDir, ".adb")
+            if (!adbDir.exists()) adbDir.mkdirs()
+            val env = pb.environment()
+            env["HOME"] = context.filesDir.absolutePath
+            env["ANDROID_ADB_ROOT"] = File(context.filesDir, ".android").absolutePath
+            env["ANDROID_ADB_KEYS_PATH"] = File(adbDir, "adb_keys").absolutePath
+            env["TMPDIR"] = context.cacheDir.absolutePath
+            env["TMP"] = context.cacheDir.absolutePath
+            env["TEMP"] = context.cacheDir.absolutePath
+            pb.redirectErrorStream(true)
+            val serverProcess = pb.start()
+            adbProcess = serverProcess
+
+            // 等待 server 就绪（最多 3 秒）
+            var ready = false
+            for (i in 0..<6) {
+                delay(500)
+                if (checkServerPort()) {
+                    ready = true
+                    break
+                }
+                if (!serverProcess.isAlive) {
+                    val err = serverProcess.inputStream.bufferedReader().readText().trim()
+                    Log.w(TAG, "adb server died early: $err")
+                    break
+                }
+            }
+            if (ready) {
+                isServerRunning = true
+                return@withContext Result.success("daemon started (nodaemon)")
+            }
+
+            // 前台模式失败，回退到标准 start-server
+            Log.w(TAG, "nodaemon failed, fallback to start-server")
+            serverProcess.destroy()
+            adbProcess = null
             val result = executeAdbCommand("start-server")
             isServerRunning = result.contains("daemon started successfully")
                     || result.isBlank()
                     || (!result.contains("error") && !result.contains("failed"))
             if (isServerRunning) return@withContext Result.success(result)
-
-            // 首次启动失败（常见于低版本 ADB 在 Android 10+ 触发 fdsan crash），
-            // 等 500ms 后重试一次
-            delay(500)
-            if (checkServerPort()) {
-                isServerRunning = true
-                return@withContext Result.success("daemon started on retry")
-            }
-            val retryResult = executeAdbCommand("start-server")
-            isServerRunning = retryResult.contains("daemon started successfully")
-                    || retryResult.isBlank()
-                    || (!retryResult.contains("error") && !retryResult.contains("failed"))
-            if (isServerRunning) Result.success(retryResult)
-            else Result.failure(Exception(retryResult.trim()))
+            else Result.failure(Exception(result.trim()))
         } catch (e: Exception) {
             isServerRunning = false
             Result.failure(e)
@@ -383,8 +412,13 @@ class AdbManager @Inject constructor(
         if (!adbDir.exists()) {
             adbDir.mkdirs()
         }
+        val androidDir = File(context.filesDir, ".android")
+        if (!androidDir.exists()) {
+            androidDir.mkdirs()
+        }
         val env = processBuilder.environment()
         env["HOME"] = context.filesDir.absolutePath
+        env["ANDROID_ADB_ROOT"] = androidDir.absolutePath
         env["ANDROID_ADB_KEYS_PATH"] = File(adbDir, "adb_keys").absolutePath
         env["USERPROFILE"] = context.filesDir.absolutePath
         // ADB daemon logs to TMPDIR; /tmp may not exist on older Android
@@ -402,7 +436,7 @@ class AdbManager @Inject constructor(
     }
 
     companion object {
-        const val DEFAULT_ADB_PORT = 5037
+        const val DEFAULT_ADB_PORT = 5038
         private const val PAIR_TIMEOUT_MS = 8_000L
         private const val SCAN_CONCURRENCY_LIMIT = 50
     }

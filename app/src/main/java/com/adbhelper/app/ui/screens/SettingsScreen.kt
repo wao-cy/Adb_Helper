@@ -147,7 +147,11 @@ fun SettingsScreen(
                             FilterChip(
                                 selected = uiState.defaultTab == index,
                                 onClick = { viewModel.updateDefaultTab(index) },
-                                label = { Text(name, style = MaterialTheme.typography.labelSmall) }
+                                label = { Text(name, style = MaterialTheme.typography.labelSmall) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                                )
                             )
                         }
                     }
@@ -316,7 +320,11 @@ fun LocalSavePathSelector(
                 FilterChip(
                     selected = currentPath == path,
                     onClick = { onPathSelected(path) },
-                    label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 )
             }
         }

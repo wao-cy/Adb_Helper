@@ -1,9 +1,9 @@
 package com.adbhelper.app.ui.viewmodels
 
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
+import android.util.Base64
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adbhelper.app.core.adb.AdbManager
@@ -11,6 +11,7 @@ import com.adbhelper.app.core.adb.DeviceState
 import com.adbhelper.app.core.adb.DeviceSession
 import com.adbhelper.app.core.shell.ShellExecutor
 import com.adbhelper.app.core.shell.TransferHelper
+import java.io.File
 import com.adbhelper.app.data.repositories.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -31,6 +32,10 @@ class AppManagerViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val deviceSession: DeviceSession
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "AppManagerViewModel"
+    }
 
     private val _uiState = MutableStateFlow(AppManagerUiState())
     val uiState: StateFlow<AppManagerUiState> = _uiState.asStateFlow()
@@ -86,32 +91,49 @@ class AppManagerViewModel @Inject constructor(
     private suspend fun loadAppNames() = withContext(Dispatchers.IO) {
         _uiState.value = _uiState.value.copy(isLoadingNames = true)
         try {
-            val pm = context.packageManager
+            val serial = getDeviceSerial()
             val nameMap = mutableMapOf<String, String>()
-            try {
-                val allPackages = pm.getInstalledPackages(PackageManager.GET_META_DATA)
-                for (pkgInfo in allPackages) {
-                    val appInfo = pkgInfo.applicationInfo ?: continue
-                    val label = appInfo.loadLabel(pm).toString()
-                    if (label.isNotBlank() && label != appInfo.packageName) {
-                        nameMap[appInfo.packageName] = label
+            val currentApps = _uiState.value.apps
+
+            // 方法一：app_process → PackageManager API（主方案，~87% 成功率）
+            if (serial != null) {
+                try {
+                    // 仅首次需推送 jar 到设备
+                    val dexFile = File(context.cacheDir, "AppNameResolver.jar")
+                    val checkResult = shellExecutor.execute(
+                        "ls /data/local/tmp/AppNameResolver.jar 2>/dev/null", serial)
+                    if (checkResult.exitCode != 0) {
+                        context.assets.open("AppNameResolver.jar").use { input ->
+                            dexFile.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        val base64 = Base64.encodeToString(dexFile.readBytes(), Base64.NO_WRAP)
+                        shellExecutor.execute(
+                            "echo '$base64' | base64 -d > /data/local/tmp/AppNameResolver.jar",
+                            serial)
+                        shellExecutor.execute(
+                            "chmod 644 /data/local/tmp/AppNameResolver.jar", serial)
                     }
-                }
-            } catch (_: Exception) {}
-            val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            val launcherApps = pm.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
-            for (resolveInfo in launcherApps) {
-                val appInfo = resolveInfo.activityInfo.applicationInfo
-                if (appInfo.packageName !in nameMap) {
-                    val label = appInfo.loadLabel(pm).toString()
-                    if (label.isNotBlank() && label != appInfo.packageName) {
-                        nameMap[appInfo.packageName] = label
+
+                    // 一次性传所有包，app_process 内部逐包解析
+                    val allPkgs = currentApps.map { it.packageName }.joinToString(" ")
+                    val result = shellExecutor.execute(
+                        "CLASSPATH=/data/local/tmp/AppNameResolver.jar " +
+                        "app_process /data/local/tmp " +
+                        "com.adbhelper.app.tools.AppNameResolver $allPkgs", serial)
+                    for (line in result.output.lines()) {
+                        val eq = line.indexOf('=')
+                        if (eq > 0) {
+                            val pkg = line.substring(0, eq)
+                            val name = line.substring(eq + 1)
+                            if (name.isNotBlank()) nameMap[pkg] = name
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.w(TAG, "app_process failed", e)
                 }
             }
-            // 方法三：通过 overlay lookup 获取仍缺失名称的第三方应用
-            val serial = getDeviceSerial()
-            val currentApps = _uiState.value.apps
+
+            // 方法二：fallback — cmd overlay lookup
             val unnamedPkgs = currentApps.filter {
                 !it.isSystemApp && (nameMap[it.packageName] ?: "").isBlank()
             }.map { it.packageName }
@@ -120,10 +142,16 @@ class AppManagerViewModel @Inject constructor(
                     try {
                         val result = shellExecutor.execute("cmd overlay lookup $pkg $pkg:string/app_name", serial)
                         val output = result.output.trim()
-                        if (output.isNotBlank() && !output.contains("error", ignoreCase = true)) {
-                            // 输出可能是: "AIDE" 或 "com.aide.MOLI:string/app_name -> \"AIDE\""
+                        if (output.isNotBlank()
+                            && !output.contains("error", ignoreCase = true)
+                            && !output.contains("find service", ignoreCase = true)
+                        ) {
                             val name = Regex("""->\s*"(.+?)"""").find(output)?.groupValues?.get(1)
-                                ?: output.lines().first().trim()
+                                ?: output.substringAfter(" -> ", "")
+                                    .trim()
+                                    .removeSurrounding("\"")
+                                    .ifBlank { null }
+                                ?: output.lines().firstOrNull()?.trim().orEmpty()
                             if (name.isNotBlank()) nameMap[pkg] = name
                         }
                     } catch (_: Exception) {}

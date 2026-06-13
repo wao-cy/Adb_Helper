@@ -1,4 +1,4 @@
-# ADB Helper
+# 汪汪ADB助手
 
 基于 Android 设备直接运行 ADB 命令的调试工具，支持脚本管理、应用管理、文件传输。内置 ADB 二进制，无需 Root，USB 或无线连接管理设备。
 

@@ -80,7 +80,7 @@ class ShellExecutor @Inject constructor(
         tryCommands(listOf("pm enable $packageName", "su -c pm enable $packageName"), serial)
 
     suspend fun installPackage(apkPath: String, serial: String? = null): ShellResult =
-        execute("pm install $apkPath", serial)
+        execute("pm install -r -t $apkPath", serial)
 
     suspend fun reboot(mode: RebootMode = RebootMode.NORMAL, serial: String? = null): ShellResult {
         val args = when (mode) {

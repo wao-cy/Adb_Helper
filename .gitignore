@@ -26,3 +26,7 @@ CLAUDE.md
 
 # Native libs (pre-built binaries, large files)
 app/src/main/jniLibs/
+
+# 个人定制页面（上传仓库时忽略）
+# 如需临时忽略本地改动，执行：git update-index --skip-worktree app/src/main/java/com/adbhelper/app/ui/screens/AboutScreen.kt
+# 如需恢复跟踪，执行：git update-index --no-skip-worktree app/src/main/java/com/adbhelper/app/ui/screens/AboutScreen.kt
