@@ -122,6 +122,20 @@ fun SettingsScreen(
                             onCheckedChange = { viewModel.updateKeepScreenOn(it) }
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Fetch app icons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(stringResource(R.string.fetch_app_icons))
+                        Switch(
+                            checked = uiState.fetchIcons,
+                            onCheckedChange = { viewModel.updateFetchIcons(it) }
+                        )
+                    }
                 }
             }
 
@@ -141,18 +155,34 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    val tabNames = listOf("设备信息", "应用管理", "文件管理", "模拟遥控")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        tabNames.forEachIndexed { index, name ->
-                            FilterChip(
-                                selected = uiState.defaultTab == index,
-                                onClick = { viewModel.updateDefaultTab(index) },
-                                label = { Text(name, style = MaterialTheme.typography.labelSmall) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                    val tabNames = listOf("设备信息", "应用管理", "文件管理", "进程管理", "模拟遥控")
+                    var expanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = expanded,
+                        onExpandedChange = { expanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = tabNames[uiState.defaultTab],
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            tabNames.forEachIndexed { index, name ->
+                                DropdownMenuItem(
+                                    text = { Text(name) },
+                                    onClick = {
+                                        viewModel.updateDefaultTab(index)
+                                        expanded = false
+                                    }
                                 )
-                            )
+                            }
                         }
                     }
                 }

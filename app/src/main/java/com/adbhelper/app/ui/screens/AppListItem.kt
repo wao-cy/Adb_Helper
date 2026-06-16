@@ -1,12 +1,16 @@
 package com.adbhelper.app.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -19,6 +23,7 @@ import com.adbhelper.app.ui.viewmodels.AppInfo
 @Composable
 fun AppListItem(
     app: AppInfo,
+    icon: ImageBitmap? = null,
     onForceStop: () -> Unit,
     onClearData: () -> Unit,
     onUninstall: () -> Unit,
@@ -93,15 +98,25 @@ fun AppListItem(
             }
         },
         leadingContent = {
-            Icon(
-                imageVector = if (app.isSystemApp) Icons.Default.Shield else Icons.Default.Android,
-                contentDescription = null,
-                tint = if (app.isSystemApp) {
-                    MaterialTheme.colorScheme.tertiary
-                } else {
-                    MaterialTheme.colorScheme.primary
-                }
-            )
+            if (icon != null) {
+                Image(
+                    bitmap = icon,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                )
+            } else {
+                Icon(
+                    imageVector = if (app.isSystemApp) Icons.Default.Shield else Icons.Default.Android,
+                    contentDescription = null,
+                    tint = if (app.isSystemApp) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    }
+                )
+            }
         },
         trailingContent = {
             Box {

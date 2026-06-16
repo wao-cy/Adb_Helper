@@ -4,23 +4,23 @@ import android.content.Context
 import android.net.Uri
 import android.util.Base64
 import android.util.Log
+import java.io.File
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adbhelper.app.core.adb.AdbManager
 import com.adbhelper.app.core.adb.DeviceState
 import com.adbhelper.app.core.adb.DeviceSession
+import com.adbhelper.app.core.shell.AppIconService
 import com.adbhelper.app.core.shell.ShellExecutor
 import com.adbhelper.app.core.shell.TransferHelper
-import java.io.File
+import com.adbhelper.app.data.repositories.AppNameStore
 import com.adbhelper.app.data.repositories.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -30,6 +30,8 @@ class AppManagerViewModel @Inject constructor(
     private val shellExecutor: ShellExecutor,
     private val transferHelper: TransferHelper,
     private val settingsRepository: SettingsRepository,
+    private val appNameStore: AppNameStore,
+    private val appIconService: AppIconService,
     private val deviceSession: DeviceSession
 ) : ViewModel() {
 
@@ -47,7 +49,6 @@ class AppManagerViewModel @Inject constructor(
                 ?.serial
     }
 
-    /** 传输相关逻辑委托给 handler，减轻 ViewModel 体量 */
     private val transferHandler = AppTransferHandler(
         context = context,
         shellExecutor = shellExecutor,
@@ -69,126 +70,141 @@ class AppManagerViewModel @Inject constructor(
     fun loadApps(force: Boolean = false) {
         if (!force && _uiState.value.apps.isNotEmpty()) return
         viewModelScope.launch {
+            val t0 = System.currentTimeMillis()
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             try {
                 val serial = getDeviceSerial()
-                val result = shellExecutor.execute("pm list packages -f", serial)
-                val disabledResult = shellExecutor.execute("pm list packages -d", serial)
-                val disabledPackages = disabledResult.output.lines()
-                    .filter { it.startsWith("package:") }
-                    .map { it.removePrefix("package:").trim() }
-                    .toSet()
-                val apps = parsePackageList(result.output, disabledPackages)
+                if (serial == null) {
+                    _uiState.value = _uiState.value.copy(isLoading = false,
+                        error = "No device connected")
+                    return@launch
+                }
+
+                ensureJarOnDevice("AppListResolver.jar", serial)
+                Log.d(TAG, "[t] ensureJar: ${System.currentTimeMillis() - t0}ms")
+
+                val result = shellExecutor.execute(
+                    "CLASSPATH=/data/local/tmp/AppListResolver.jar " +
+                    "app_process /data/local/tmp " +
+                    "com.adbhelper.app.tools.AppListResolver", serial)
+                Log.d(TAG, "[t] app_process list: ${System.currentTimeMillis() - t0}ms")
+
+                Log.d(TAG, "[loadApps] exitCode=${result.exitCode}, " +
+                    "outputLines=${result.output.lines().size}, " +
+                    "firstLine=${result.output.lines().firstOrNull().orEmpty().take(100)}")
+
+                if (result.exitCode != 0 || result.output.contains("ERROR") || result.output.contains("FATAL")) {
+                    val errLine = result.output.lines().firstOrNull {
+                        it.startsWith("ERROR") || it.startsWith("FATAL")
+                    }
+                    throw Exception(errLine ?: "AppListResolver failed (exit=$result.exitCode)")
+                }
+
+                val apps = parseAppListResult(result.output)
+
+                val sysCount = apps.count { it.isSystemApp }
+                val thirdCount = apps.count { !it.isSystemApp }
+                Log.d(TAG, "[loadApps] parsed=${apps.size} (sys=$sysCount, third=$thirdCount), " +
+                    "sample=${apps.take(3).map { "${it.packageName}=${it.appName}" }}")
+
+                appNameStore.update(apps.associate { it.packageName to it.appName })
+
                 _uiState.value = _uiState.value.copy(isLoading = false, apps = apps, error = null)
                 applyFilterAndSearch()
-                loadAppNames()
+                loadAppIcons(t0)
             } catch (e: Exception) {
+                Log.e(TAG, "[loadApps] error", e)
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
             }
         }
     }
 
-    private suspend fun loadAppNames() = withContext(Dispatchers.IO) {
-        _uiState.value = _uiState.value.copy(isLoadingNames = true)
+    private suspend fun ensureJarOnDevice(jarName: String, serial: String) {
+        val dexFile = File(context.cacheDir, jarName)
+        context.assets.open(jarName).use { input ->
+            dexFile.outputStream().use { output -> input.copyTo(output) }
+        }
+        val b64 = Base64.encodeToString(dexFile.readBytes(), Base64.NO_WRAP)
+        shellExecutor.execute("echo '$b64' | base64 -d > /data/local/tmp/$jarName", serial)
+        shellExecutor.execute("chmod 644 /data/local/tmp/$jarName", serial)
+    }
+
+    private suspend fun loadAppIcons(t0: Long = 0) {
+        if (!settingsRepository.fetchIconsFlow.value) return
+        _uiState.value = _uiState.value.copy(isLoadingIcons = true)
         try {
-            val serial = getDeviceSerial()
-            val nameMap = mutableMapOf<String, String>()
+            val serial = getDeviceSerial() ?: return
             val currentApps = _uiState.value.apps
+            if (currentApps.isEmpty()) return
 
-            // 方法一：app_process → PackageManager API（主方案，~87% 成功率）
-            if (serial != null) {
-                try {
-                    // 仅首次需推送 jar 到设备
-                    val dexFile = File(context.cacheDir, "AppNameResolver.jar")
-                    val checkResult = shellExecutor.execute(
-                        "ls /data/local/tmp/AppNameResolver.jar 2>/dev/null", serial)
-                    if (checkResult.exitCode != 0) {
-                        context.assets.open("AppNameResolver.jar").use { input ->
-                            dexFile.outputStream().use { output -> input.copyTo(output) }
-                        }
-                        val base64 = Base64.encodeToString(dexFile.readBytes(), Base64.NO_WRAP)
-                        shellExecutor.execute(
-                            "echo '$base64' | base64 -d > /data/local/tmp/AppNameResolver.jar",
-                            serial)
-                        shellExecutor.execute(
-                            "chmod 644 /data/local/tmp/AppNameResolver.jar", serial)
-                    }
+            val icons = appIconService.loadAppIcons(
+                packages = currentApps.map { it.packageName },
+                serial = serial
+            )
 
-                    // 一次性传所有包，app_process 内部逐包解析
-                    val allPkgs = currentApps.map { it.packageName }.joinToString(" ")
-                    val result = shellExecutor.execute(
-                        "CLASSPATH=/data/local/tmp/AppNameResolver.jar " +
-                        "app_process /data/local/tmp " +
-                        "com.adbhelper.app.tools.AppNameResolver $allPkgs", serial)
-                    for (line in result.output.lines()) {
-                        val eq = line.indexOf('=')
-                        if (eq > 0) {
-                            val pkg = line.substring(0, eq)
-                            val name = line.substring(eq + 1)
-                            if (name.isNotBlank()) nameMap[pkg] = name
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "app_process failed", e)
-                }
-            }
-
-            // 方法二：fallback — cmd overlay lookup
-            val unnamedPkgs = currentApps.filter {
-                !it.isSystemApp && (nameMap[it.packageName] ?: "").isBlank()
-            }.map { it.packageName }
-            if (unnamedPkgs.isNotEmpty() && serial != null) {
-                for (pkg in unnamedPkgs) {
-                    try {
-                        val result = shellExecutor.execute("cmd overlay lookup $pkg $pkg:string/app_name", serial)
-                        val output = result.output.trim()
-                        if (output.isNotBlank()
-                            && !output.contains("error", ignoreCase = true)
-                            && !output.contains("find service", ignoreCase = true)
-                        ) {
-                            val name = Regex("""->\s*"(.+?)"""").find(output)?.groupValues?.get(1)
-                                ?: output.substringAfter(" -> ", "")
-                                    .trim()
-                                    .removeSurrounding("\"")
-                                    .ifBlank { null }
-                                ?: output.lines().firstOrNull()?.trim().orEmpty()
-                            if (name.isNotBlank()) nameMap[pkg] = name
-                        }
-                    } catch (_: Exception) {}
-                }
-            }
-
-            val updatedApps = currentApps.map { app ->
-                val appName = nameMap[app.packageName] ?: ""
-                app.copy(appName = appName.ifBlank { app.packageName })
-            }
-            _uiState.value = _uiState.value.copy(apps = updatedApps, isLoadingNames = false)
-            applyFilterAndSearch()
-        } catch (_: Exception) {
-            _uiState.value = _uiState.value.copy(isLoadingNames = false)
+            if (t0 > 0) Log.d(TAG, "[t] total load: ${System.currentTimeMillis() - t0}ms")
+            _uiState.value = _uiState.value.copy(appIcons = icons, isLoadingIcons = false)
+            Log.d(TAG, "[icons] displayed ${icons.size} icons")
+        } catch (e: Exception) {
+            Log.e(TAG, "[icons] loadAppIcons failed", e)
+            _uiState.value = _uiState.value.copy(isLoadingIcons = false)
         }
     }
 
-    private fun parsePackageList(output: String, disabledPackages: Set<String> = emptySet()): List<AppInfo> {
-        val apps = mutableListOf<AppInfo>()
-        for (line in output.lines()) {
-            val trimmed = line.trim()
-            if (!trimmed.startsWith("package:")) continue
-            val withoutPrefix = trimmed.removePrefix("package:")
-            val eqIndex = withoutPrefix.lastIndexOf('=')
-            if (eqIndex <= 0) continue
-            val apkPath = withoutPrefix.substring(0, eqIndex)
-            val packageName = withoutPrefix.substring(eqIndex + 1)
-            val isSystemApp = apkPath.startsWith("/system/") || apkPath.startsWith("/product/") ||
-                    apkPath.startsWith("/vendor/") || apkPath.startsWith("/apex/")
-            apps.add(AppInfo(
-                packageName = packageName,
-                apkPath = apkPath,
-                isSystemApp = isSystemApp,
-                isDisabled = packageName in disabledPackages
-            ))
+    private suspend fun resolveOverlayNames(apps: List<AppInfo>, serial: String): List<AppInfo> {
+        val unnamed = apps.filter { it.appName == "?" || it.appName.isBlank() }
+        if (unnamed.isEmpty()) return apps
+
+        val nameMap = mutableMapOf<String, String>()
+        Log.d(TAG, "[overlay] resolving ${unnamed.size} names via cmd overlay lookup...")
+
+        for (pkg in unnamed) {
+            try {
+                val result = shellExecutor.execute(
+                    "cmd overlay lookup $pkg $pkg:string/app_name", serial)
+                val output = result.output.trim()
+                if (output.isNotBlank() && !output.contains("error", ignoreCase = true)
+                    && !output.contains("not found", ignoreCase = true)) {
+                    val name = Regex("""->\s*"(.+?)"""").find(output)?.groupValues?.get(1)
+                        ?: output.substringAfter(" -> ", "")
+                            .trim().removeSurrounding("\"").ifBlank { null }
+                    if (name != null) nameMap[pkg.packageName] = name
+                }
+            } catch (_: Exception) {}
         }
-        return apps.sortedBy { it.packageName.lowercase() }
+
+        if (nameMap.isNotEmpty()) {
+            Log.d(TAG, "[overlay] resolved ${nameMap.size}/${unnamed.size} names")
+            return apps.map { app ->
+                val overlayName = nameMap[app.packageName]
+                if (overlayName != null) app.copy(appName = overlayName) else app
+            }
+        }
+        return apps
+    }
+
+    private fun parseAppListResult(output: String): List<AppInfo> {
+        val apps = output.lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.startsWith("ERROR") && !it.startsWith("FATAL") }
+            .mapNotNull { line ->
+                val parts = line.split("\t", limit = 5)
+                if (parts.size < 5) {
+                    Log.d(TAG, "skip[${parts.size}] ${line.take(100)}")
+                    return@mapNotNull null
+                }
+                val (pkg, sourceDir, isSystem, isDisabled, label) = parts
+                AppInfo(
+                    packageName = pkg,
+                    apkPath = sourceDir,
+                    appName = if (label == "?" || label.isBlank()) pkg else label,
+                    isSystemApp = isSystem == "1",
+                    isDisabled = isDisabled == "1"
+                )
+            }
+            .sortedBy { it.packageName.lowercase() }
+        Log.d(TAG, "[parse] total=${output.lines().size}, parsed=${apps.size}")
+        return apps
     }
 
     // ========== 应用详情 ==========
@@ -224,14 +240,12 @@ class AppManagerViewModel @Inject constructor(
         val firstInstall = Regex("firstInstallTime=(.+)").find(dumpsys)?.groupValues?.get(1)?.trim() ?: ""
         val lastUpdate = Regex("lastUpdateTime=(.+)").find(dumpsys)?.groupValues?.get(1)?.trim() ?: ""
 
-        // 获取启动活动
         var launchActivity = ""
         val launcherRegex = Regex("android\\.intent\\.action\\.MAIN[\\s\\S]*?([a-zA-Z0-9_.]+/[a-zA-Z0-9_.]+)")
         val match = launcherRegex.find(dumpsys)
         if (match != null) {
             launchActivity = match.groupValues[1].trim()
         } else {
-            // 回退：用 cmd package resolve-activity
             try {
                 val resolve = shellExecutor.execute(
                     "cmd package resolve-activity --brief -c android.intent.category.LAUNCHER $packageName", serial
@@ -241,7 +255,6 @@ class AppManagerViewModel @Inject constructor(
             } catch (_: Exception) {}
         }
 
-        // 获取 APK 大小
         var apkSize = ""
         try {
             val lsResult = shellExecutor.execute("ls -la $apkPath", serial)

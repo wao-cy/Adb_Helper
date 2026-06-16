@@ -20,6 +20,7 @@ import com.adbhelper.app.core.shell.ShellExecutor
 import com.adbhelper.app.ui.viewmodels.AppManagerViewModel
 import com.adbhelper.app.ui.viewmodels.DeviceViewModel
 import com.adbhelper.app.ui.viewmodels.FileManagerViewModel
+import com.adbhelper.app.ui.viewmodels.ProcessManagerViewModel
 import com.adbhelper.app.ui.viewmodels.RemoteControlViewModel
 import com.adbhelper.app.ui.viewmodels.SettingsViewModel
 import kotlinx.coroutines.launch
@@ -32,11 +33,12 @@ fun DeviceScreen(
     appManagerViewModel: AppManagerViewModel = hiltViewModel(),
     fileManagerViewModel: FileManagerViewModel = hiltViewModel(),
     remoteControlViewModel: RemoteControlViewModel = hiltViewModel(),
+    processManagerViewModel: ProcessManagerViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val defaultTabPage by settingsViewModel.settingsRepository.defaultTabFlow.collectAsState()
-    val tabs = listOf("设备信息", "应用管理", "文件管理", "模拟遥控")
+    val tabs = listOf("设备信息", "应用管理", "文件管理", "进程管理", "模拟遥控")
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
 
@@ -54,9 +56,10 @@ fun DeviceScreen(
     }
 
     // 首次进入或默认 Tab 设置变更时跳转
-    LaunchedEffect(defaultTabPage) {
-        if (pagerState.currentPage != defaultTabPage) {
-            pagerState.animateScrollToPage(defaultTabPage)
+    val safeDefaultTab = defaultTabPage.coerceIn(0, tabs.size - 1)
+    LaunchedEffect(safeDefaultTab) {
+        if (pagerState.currentPage != safeDefaultTab) {
+            pagerState.animateScrollToPage(safeDefaultTab)
         }
     }
 
@@ -75,6 +78,7 @@ fun DeviceScreen(
                             0 -> viewModel.loadDeviceInfo()
                             1 -> appManagerViewModel.loadApps(force = true)
                             2 -> fileManagerViewModel.loadFiles(force = true)
+                            3 -> processManagerViewModel.refreshProcesses()
                         }
                     }) {
                         Icon(Icons.Default.Refresh, stringResource(R.string.refresh))
@@ -115,7 +119,7 @@ fun DeviceScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             // TabRow
-            TabRow(selectedTabIndex = pagerState.currentPage) {
+            ScrollableTabRow(selectedTabIndex = pagerState.currentPage, edgePadding = 8.dp) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
                         selected = pagerState.currentPage == index,
@@ -133,7 +137,11 @@ fun DeviceScreen(
                     0 -> DeviceInfoContent(uiState = uiState, viewModel = viewModel)
                     1 -> AppManagerPanel(viewModel = appManagerViewModel)
                     2 -> FileManagerPanel(isActive = pagerState.currentPage == 2, onNavigateBack = onNavigateBack, viewModel = fileManagerViewModel)
-                    3 -> RemoteControlPanel(viewModel = remoteControlViewModel)
+                    3 -> ProcessManagerPanel(
+                        isActive = pagerState.currentPage == 3,
+                        viewModel = processManagerViewModel
+                    )
+                    4 -> RemoteControlPanel(viewModel = remoteControlViewModel)
                 }
             }
         }

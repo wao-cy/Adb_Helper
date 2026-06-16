@@ -98,6 +98,17 @@ class ShellExecutor @Inject constructor(
     suspend fun getScreenSize(serial: String? = null): String = execute("wm size", serial).output
     suspend fun getMemInfo(serial: String? = null): String = execute("cat /proc/meminfo", serial).output
 
+    // ========== 进程管理 ==========
+
+    suspend fun getProcessList(serial: String? = null): ShellResult =
+        tryCommands(listOf(
+            "ps -A -o PID,PPID,USER,NAME,%CPU,%MEM",
+            "ps"
+        ), serial)
+
+    suspend fun killProcess(pid: Int, serial: String? = null): ShellResult =
+        tryCommands(listOf("kill -9 $pid", "su -c kill -9 $pid"), serial)
+
     // ========== 输入模拟 ==========
 
     suspend fun inputKeyEvent(code: Int, serial: String? = null): ShellResult =

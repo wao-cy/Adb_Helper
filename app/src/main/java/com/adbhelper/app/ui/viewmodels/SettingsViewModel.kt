@@ -20,6 +20,7 @@ data class SettingsUiState(
     val localSavePath: String = "",
     val cacheSize: Long = 0L,
     val defaultTab: Int = 0,
+    val fetchIcons: Boolean = true,
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -46,7 +47,8 @@ class SettingsViewModel @Inject constructor(
                 darkMode = settingsRepository.darkModeFlow.value,
                 keepScreenOn = settingsRepository.keepScreenOnFlow.value,
                 localSavePath = settingsRepository.localSavePathFlow.value,
-                defaultTab = settingsRepository.defaultTabFlow.value
+                defaultTab = settingsRepository.defaultTabFlow.value,
+                fetchIcons = settingsRepository.fetchIconsFlow.value
             )
         }
     }
@@ -76,6 +78,13 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(defaultTab = index)
         viewModelScope.launch {
             settingsRepository.updateDefaultTab(index)
+        }
+    }
+
+    fun updateFetchIcons(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(fetchIcons = enabled)
+        viewModelScope.launch {
+            settingsRepository.updateFetchIcons(enabled)
         }
     }
 

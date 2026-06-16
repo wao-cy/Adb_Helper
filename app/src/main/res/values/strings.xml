@@ -231,6 +231,7 @@
 
     <!-- 默认设备 Tab -->
     <string name="default_device_tab">默认设备 Tab</string>
+    <string name="fetch_app_icons">获取应用图标</string>
 
     <!-- 模拟遥控 -->
     <string name="remote_control">模拟遥控</string>
@@ -246,4 +247,14 @@
     <string name="y_coord">Y</string>
     <string name="remote_control_success">发送成功</string>
     <string name="remote_control_failed">发送失败</string>
+
+    <!-- 进程管理 -->
+    <string name="process_search_hint">搜索进程名…</string>
+    <string name="process_count_format">共 %d 个进程</string>
+    <string name="no_processes_found">未找到进程</string>
+    <string name="process_kill_confirm">确定要终止进程 %1$s (PID: %2$d) 吗？</string>
+    <string name="process_killed">已终止进程 %s</string>
+    <string name="process_kill_failed">终止失败: %s</string>
+    <string name="process_loading">正在加载进程列表…</string>
+    <string name="process_empty">没有运行中的进程</string>
 </resources>

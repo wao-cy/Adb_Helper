@@ -28,6 +28,7 @@ class SettingsRepository @Inject constructor(
         val KEY_LOCAL_SAVE_PATH = stringPreferencesKey("local_save_path")
         val KEY_CONNECT_HISTORY = stringPreferencesKey("connect_history")
         val KEY_DEFAULT_TAB = intPreferencesKey("default_tab")
+        val KEY_FETCH_ICONS = booleanPreferencesKey("fetch_icons")
 
         fun formatCacheSize(bytes: Long): String {
             return when {
@@ -44,6 +45,7 @@ class SettingsRepository @Inject constructor(
     val localSavePathFlow = MutableStateFlow(defaultSavePath())
     val connectHistoryFlow = MutableStateFlow<List<String>>(emptyList())
     val defaultTabFlow = MutableStateFlow(0)
+    val fetchIconsFlow = MutableStateFlow(true)
 
     suspend fun loadSettings() {
         val prefs = context.settingsDataStore.data.first()
@@ -58,6 +60,7 @@ class SettingsRepository @Inject constructor(
         localSavePathFlow.value = localSavePath
         connectHistoryFlow.value = history
         defaultTabFlow.value = prefs[KEY_DEFAULT_TAB] ?: 0
+        fetchIconsFlow.value = prefs[KEY_FETCH_ICONS] ?: true
 
         File(localSavePath).mkdirs()
     }
@@ -115,6 +118,13 @@ class SettingsRepository @Inject constructor(
         defaultTabFlow.value = index
         context.settingsDataStore.edit { prefs ->
             prefs[KEY_DEFAULT_TAB] = index
+        }
+    }
+
+    suspend fun updateFetchIcons(enabled: Boolean) {
+        fetchIconsFlow.value = enabled
+        context.settingsDataStore.edit { prefs ->
+            prefs[KEY_FETCH_ICONS] = enabled
         }
     }
 }

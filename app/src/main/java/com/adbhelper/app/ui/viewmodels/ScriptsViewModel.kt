@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adbhelper.app.core.script.AdbScript
 import com.adbhelper.app.core.script.ScriptEngine
+import com.adbhelper.app.core.script.ScriptTemplates
 import com.adbhelper.app.data.repositories.ScriptRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -85,7 +86,7 @@ class ScriptsViewModel @Inject constructor(
 
     fun loadPredefinedScripts() {
         viewModelScope.launch {
-            ScriptEngine.PREDEFINED_SCRIPTS.forEach { script ->
+            ScriptTemplates.PREDEFINED_SCRIPTS.forEach { script ->
                 scriptRepository.saveScript(script)
             }
         }

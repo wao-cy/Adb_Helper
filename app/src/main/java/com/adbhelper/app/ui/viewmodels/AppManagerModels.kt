@@ -1,5 +1,6 @@
 package com.adbhelper.app.ui.viewmodels
 
+import androidx.compose.ui.graphics.ImageBitmap
 import com.adbhelper.app.core.shell.TransferProgress
 
 data class AppInfo(
@@ -57,5 +58,7 @@ data class AppManagerUiState(
     val transferState: TransferState? = null,
     val showPermissionWarning: Boolean = false,
     val appDetail: AppDetail? = null,
-    val isLoadingDetail: Boolean = false
+    val isLoadingDetail: Boolean = false,
+    val appIcons: Map<String, ImageBitmap> = emptyMap(),
+    val isLoadingIcons: Boolean = false
 )

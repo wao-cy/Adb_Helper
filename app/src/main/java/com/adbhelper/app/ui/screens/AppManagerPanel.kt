@@ -91,12 +91,7 @@ fun AppManagerPanel(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (uiState.isLoadingNames) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.loading_app_names), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                // isLoadingNames 不再需要（名称随 AppListResolver 一起返回）
             }
 
             // 应用列表
@@ -121,6 +116,7 @@ fun AppManagerPanel(
                     items(items = uiState.filteredApps, key = { it.packageName }) { app ->
                         AppListItem(
                             app = app,
+                            icon = uiState.appIcons[app.packageName],
                             onForceStop = { viewModel.forceStop(app.packageName) },
                             onClearData = { viewModel.clearData(app.packageName) },
                             onUninstall = { viewModel.uninstall(app.packageName) },
