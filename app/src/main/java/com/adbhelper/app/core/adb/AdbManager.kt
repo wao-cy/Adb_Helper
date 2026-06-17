@@ -6,7 +6,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.joinAll
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
@@ -32,9 +31,7 @@ enum class DeviceState {
 class AdbManager @Inject constructor(
     @param:ApplicationContext private val context: Context
 ) {
-    private var adbProcess: Process? = null
     private var adbPath: String = ""
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     var hasRoot: Boolean = false
         private set
     var isServerRunning: Boolean = false
@@ -133,22 +130,6 @@ class AdbManager @Inject constructor(
         } catch (e: Exception) {
             isServerRunning = false
             Result.failure(e)
-        }
-    }
-
-    /**
-     * 清理 ADB 持久化目录，让 server 启动时不尝试重连旧的 TCP 设备
-     * adb_keys 会被删除，下次连接设备时需重新授权（仅首次）
-     */
-    private fun cleanAdbPersistDir() {
-        try {
-            val adbDir = File(context.filesDir, ".adb")
-            if (adbDir.exists()) {
-                adbDir.deleteRecursively()
-            }
-            adbDir.mkdirs()
-        } catch (e: Exception) {
-            Log.w(TAG, "cleanAdbPersistDir failed: ${e.message}")
         }
     }
 
@@ -304,17 +285,6 @@ class AdbManager @Inject constructor(
         }
     }
 
-    @Suppress("unused")
-    suspend fun setTcpIp(port: Int = 5555): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            //noinspection SpellCheckingInspection
-            val result = executeAdbCommand("tcpip", port.toString())
-            Result.success(result)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     /**
      * 扫描局域网内可连接的 ADB 设备
      * 通过检测 5555 端口是否开放来判断
@@ -412,11 +382,5 @@ class AdbManager @Inject constructor(
         process.waitFor()
         Log.d(TAG, "executeAdbCommand output: $output")
         output
-    }
-
-    @Suppress("unused")
-    fun destroy() {
-        scope.cancel()
-        adbProcess?.destroy()
     }
 }

@@ -116,11 +116,22 @@ class ProcessManagerViewModel @Inject constructor(
                         operationMessage = "已终止进程 ${process.name} (PID: ${process.pid})"
                     )
                 } else {
-                    _uiState.value = _uiState.value.copy(
-                        showKillConfirm = false,
-                        processToKill = null,
-                        operationMessage = "终止失败: ${result.output.trim().take(50)}"
-                    )
+                    // kill -9 失败，尝试 am force-stop 兜底（提取包名，去掉 :remote 等后缀）
+                    val packageName = process.name.substringBefore(':')
+                    val fsResult = shellExecutor.forceStopPackage(packageName, serial)
+                    if (fsResult.exitCode == 0) {
+                        _uiState.value = _uiState.value.copy(
+                            showKillConfirm = false,
+                            processToKill = null,
+                            operationMessage = "已停止 $packageName"
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            showKillConfirm = false,
+                            processToKill = null,
+                            operationMessage = "终止失败: 权限不足，无法终止该进程"
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(

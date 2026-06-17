@@ -106,8 +106,18 @@ class ShellExecutor @Inject constructor(
             "ps"
         ), serial)
 
-    suspend fun killProcess(pid: Int, serial: String? = null): ShellResult =
-        tryCommands(listOf("kill -9 $pid", "su -c kill -9 $pid"), serial)
+    suspend fun killProcess(pid: Int, serial: String? = null): ShellResult {
+        val result = execute("kill -9 $pid", serial)
+        if (result.exitCode == 0) return result
+        // kill 失败时尝试 su（针对 root 设备），若 su 不存在则返回原始 kill 错误
+        val suResult = execute("su -c kill -9 $pid", serial)
+        val suMissing = suResult.output.contains("not found") || suResult.output.contains("inaccessible")
+        return if (suMissing) result else suResult
+    }
+
+    /** 通过 am force-stop 停止应用（无需 root，ADB shell 可用） */
+    suspend fun forceStopPackage(packageName: String, serial: String? = null): ShellResult =
+        execute("am force-stop $packageName", serial)
 
     // ========== 输入模拟 ==========
 

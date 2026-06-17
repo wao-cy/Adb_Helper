@@ -11,6 +11,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 //import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -132,6 +133,8 @@ class HomeViewModel @Inject constructor(
                 result.fold(
                     onSuccess = {
                         onResult?.invoke(true, "Connected successfully")
+                        doRefreshDevices()
+                        delay(1000) // 等待设备稳定后二次刷新，避免显示 offline
                         doRefreshDevices()
                         // 自动选中刚连接的设备
                         val serial = "$ip:$port"

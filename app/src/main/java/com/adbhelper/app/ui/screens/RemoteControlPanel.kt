@@ -30,6 +30,7 @@ fun RemoteControlPanel(
     var x2 by remember { mutableStateOf("") }
     var y2 by remember { mutableStateOf("") }
     var inputText by remember { mutableStateOf("") }
+    val showSecurityDialog by viewModel.showSecurityDialog.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.feedback.collect { msg ->
@@ -39,6 +40,21 @@ fun RemoteControlPanel(
             delay(500)
             toast.cancel()
         }
+    }
+
+    if (showSecurityDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissSecurityDialog() },
+            title = { Text("模拟输入失败") },
+            text = {
+                Text("高版本安卓系统需要开启「USB调试（安全设置）」才能使用模拟输入功能。\n\n请前往被控设备：\n设置 → 开发者选项 → 开启「USB调试（安全设置）」")
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissSecurityDialog() }) {
+                    Text("知道了")
+                }
+            }
+        )
     }
 
     Box(modifier = Modifier.fillMaxSize().imePadding()) {
@@ -226,7 +242,7 @@ fun RemoteControlPanel(
                     onValueChange = { inputText = it },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    placeholder = { Text("输入要发送的文本，暂不支持中文") },
+                    placeholder = { Text("输入要发送的ASCII字符") },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
                         if (inputText.isNotBlank()) {
@@ -244,6 +260,9 @@ fun RemoteControlPanel(
                     },
                     enabled = inputText.isNotBlank()
                 ) { Text("发送") }
+                OutlinedButton(onClick = { viewModel.deleteChar() }) {
+                    Text("删除")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

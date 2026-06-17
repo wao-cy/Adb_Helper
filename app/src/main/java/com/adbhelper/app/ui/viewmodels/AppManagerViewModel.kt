@@ -151,38 +151,6 @@ class AppManagerViewModel @Inject constructor(
         }
     }
 
-    private suspend fun resolveOverlayNames(apps: List<AppInfo>, serial: String): List<AppInfo> {
-        val unnamed = apps.filter { it.appName == "?" || it.appName.isBlank() }
-        if (unnamed.isEmpty()) return apps
-
-        val nameMap = mutableMapOf<String, String>()
-        Log.d(TAG, "[overlay] resolving ${unnamed.size} names via cmd overlay lookup...")
-
-        for (pkg in unnamed) {
-            try {
-                val result = shellExecutor.execute(
-                    "cmd overlay lookup $pkg $pkg:string/app_name", serial)
-                val output = result.output.trim()
-                if (output.isNotBlank() && !output.contains("error", ignoreCase = true)
-                    && !output.contains("not found", ignoreCase = true)) {
-                    val name = Regex("""->\s*"(.+?)"""").find(output)?.groupValues?.get(1)
-                        ?: output.substringAfter(" -> ", "")
-                            .trim().removeSurrounding("\"").ifBlank { null }
-                    if (name != null) nameMap[pkg.packageName] = name
-                }
-            } catch (_: Exception) {}
-        }
-
-        if (nameMap.isNotEmpty()) {
-            Log.d(TAG, "[overlay] resolved ${nameMap.size}/${unnamed.size} names")
-            return apps.map { app ->
-                val overlayName = nameMap[app.packageName]
-                if (overlayName != null) app.copy(appName = overlayName) else app
-            }
-        }
-        return apps
-    }
-
     private fun parseAppListResult(output: String): List<AppInfo> {
         val apps = output.lines()
             .map { it.trim() }
