@@ -280,8 +280,8 @@ fun ShellScreen(
                         item { QuickCommandChip("devices") { viewModel.executeQuickCommand("devices") } }
                         item { QuickCommandChip("shell") { viewModel.executeQuickCommand("shell") } }
                         item { QuickCommandChip("exit") { viewModel.executeQuickCommand("exit") } }
-                        item { QuickCommandChip("getprop") { viewModel.executeQuickCommand("getprop") } }
                         item { QuickCommandChip("packages") { viewModel.executeQuickCommand("packages") } }
+                        item { QuickCommandChip("当前页面") { viewModel.executeQuickCommand("当前页面") } }
                         item { QuickCommandChip("battery") { viewModel.executeQuickCommand("battery") } }
                     }
                 }

@@ -8,7 +8,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.adbhelper.app.R
 import com.adbhelper.app.core.script.ScriptCommand
 
@@ -21,6 +24,11 @@ fun CommandCard(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit
 ) {
+    if (command.command.startsWith("#")) {
+        CommentRow(command.command, onRemove, onMoveUp, onMoveDown)
+        return
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -61,16 +69,6 @@ fun CommandCard(
                 singleLine = true
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            OutlinedTextField(
-                value = command.description,
-                onValueChange = { onUpdate(command.copy(description = it)) },
-                label = { Text(stringResource(R.string.description)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -103,7 +101,6 @@ fun AddCommandDialog(
     onAdd: (ScriptCommand) -> Unit
 ) {
     var command by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
     var ignoreError by remember { mutableStateOf(false) }
     var timeout by remember { mutableStateOf("30") }
 
@@ -117,14 +114,6 @@ fun AddCommandDialog(
                     onValueChange = { command = it },
                     label = { Text(stringResource(R.string.adb_command)) },
                     placeholder = { Text("shell getprop") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text(stringResource(R.string.description)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -154,7 +143,6 @@ fun AddCommandDialog(
                     onAdd(
                         ScriptCommand(
                             command = command,
-                            description = description,
                             ignoreError = ignoreError,
                             timeout = (timeout.toLongOrNull() ?: 30) * 1000
                         )
@@ -171,4 +159,46 @@ fun AddCommandDialog(
             }
         }
     )
+}
+
+/** 轻量注释行，用于卡片视图中渲染 # 开头的注释命令 */
+@Composable
+private fun CommentRow(
+    text: String,
+    onRemove: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.FormatQuote,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = text.removePrefix("#").trim(),
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        IconButton(onClick = onMoveUp, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.KeyboardArrowUp, stringResource(R.string.move_up), modifier = Modifier.size(16.dp))
+        }
+        IconButton(onClick = onMoveDown, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.KeyboardArrowDown, stringResource(R.string.move_down), modifier = Modifier.size(16.dp))
+        }
+        IconButton(onClick = onRemove, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.Delete, stringResource(R.string.delete), modifier = Modifier.size(16.dp))
+        }
+    }
 }

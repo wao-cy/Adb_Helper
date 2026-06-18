@@ -83,10 +83,13 @@ class AppManagerViewModel @Inject constructor(
                 ensureJarOnDevice("AppListResolver.jar", serial)
                 Log.d(TAG, "[t] ensureJar: ${System.currentTimeMillis() - t0}ms")
 
+                val resolveNames = settingsRepository.resolveNamesFlow.value
+                val extraArgs = if (!resolveNames) " --no-labels" else ""
+
                 val result = shellExecutor.execute(
                     "CLASSPATH=/data/local/tmp/AppListResolver.jar " +
                     "app_process /data/local/tmp " +
-                    "com.adbhelper.app.tools.AppListResolver", serial)
+                    "com.adbhelper.app.tools.AppListResolver$extraArgs", serial)
                 Log.d(TAG, "[t] app_process list: ${System.currentTimeMillis() - t0}ms")
 
                 Log.d(TAG, "[loadApps] exitCode=${result.exitCode}, " +
@@ -107,11 +110,19 @@ class AppManagerViewModel @Inject constructor(
                 Log.d(TAG, "[loadApps] parsed=${apps.size} (sys=$sysCount, third=$thirdCount), " +
                     "sample=${apps.take(3).map { "${it.packageName}=${it.appName}" }}")
 
-                appNameStore.update(apps.associate { it.packageName to it.appName })
+                if (resolveNames) {
+                    appNameStore.update(apps.associate { it.packageName to it.appName })
+                }
 
-                _uiState.value = _uiState.value.copy(isLoading = false, apps = apps, error = null)
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false, apps = apps, error = null
+                )
                 applyFilterAndSearch()
-                loadAppIcons(t0)
+
+                // 并行加载图标：不阻塞列表展示
+                if (settingsRepository.fetchIconsFlow.value) {
+                    viewModelScope.launch { loadAppIcons(t0) }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "[loadApps] error", e)
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)

@@ -31,6 +31,11 @@ public class AppListResolver {
 
     public static void main(String[] args) {
         try {
+            boolean noLabels = false;
+            if (args.length > 0 && "--no-labels".equals(args[0])) {
+                noLabels = true;
+            }
+
             initServiceManager();
             if (sIPM == null) {
                 System.err.println("ERROR: cannot get IPackageManager");
@@ -54,7 +59,7 @@ public class AppListResolver {
                         (ai.sourceDir != null ? ai.sourceDir : "");
                 String isSystem = (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0 ? "1" : "0";
                 String isDisabled = !ai.enabled ? "1" : "0";
-                String label = resolveLabel(ai);
+                String label = noLabels ? "?" : resolveLabel(ai);
 
                 System.out.println(pkg + "\t" + sourceDir + "\t" + isSystem + "\t" + isDisabled + "\t" + (label != null ? label : "?"));
             }

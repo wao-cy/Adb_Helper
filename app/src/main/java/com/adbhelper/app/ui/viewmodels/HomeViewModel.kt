@@ -134,8 +134,6 @@ class HomeViewModel @Inject constructor(
                     onSuccess = {
                         onResult?.invoke(true, "Connected successfully")
                         doRefreshDevices()
-                        delay(1000) // 等待设备稳定后二次刷新，避免显示 offline
-                        doRefreshDevices()
                         // 自动选中刚连接的设备
                         val serial = "$ip:$port"
                         val connected = _uiState.value.connectedDevices.find { it.serial == serial }
@@ -143,6 +141,8 @@ class HomeViewModel @Inject constructor(
                             _uiState.value = _uiState.value.copy(selectedDevice = connected)
                             deviceSession.select(connected.serial)
                         }
+                        delay(100) // 等待设备稳定后二次刷新，避免显示 offline
+                        doRefreshDevices()                        
                     },
                     onFailure = { e ->
                         val msg = e.message ?: "Connection failed"

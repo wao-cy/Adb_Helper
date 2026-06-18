@@ -242,21 +242,21 @@ class IfCommandHandler : SpecialCommandHandler {
         // 解析条件
         val (condition, action) = parseIfCondition(body)
         if (condition == null || action == null) {
-            ctx.emitLine("[错误] if 语法错误，支持的条件: \$VAR==\"value\" / \$VAR!=\"value\" / defined \$VAR / not defined \$VAR / exists:path / not_exists:path")
+            ctx.emitLine("[错误] if 语法错误，支持的条件: \$VAR==\"value\" / \$VAR!=\"value\" / defined \$VAR / not defined \$VAR / exists:VAR keyword / not_exists:VAR keyword")
             ctx.addResult(CommandResult(command = effectiveCommand, result = null, error = "if 语法错误"))
             return
         }
 
         // 评估条件（变量替换后）
         val conditionResult: Boolean = if (condition.startsWith("exists:") || condition.startsWith("not_exists:")) {
-            // 路径条件需要执行 shell 检查
             val isExists = condition.startsWith("exists:")
-            val path = condition.removePrefix(if (isExists) "exists:" else "not_exists:")
-            val resolvedPath = replaceVars(path, ctx.mergedVariables)
-            val shellResult = ctx.executeShell("shell ls $resolvedPath 2>/dev/null && echo true || echo false", null)
-            val pathExists = shellResult.output.trim() == "true"
-            ctx.emitLine("[if] $condition → ${if (pathExists == isExists) "true" else "false"}")
-            pathExists == isExists
+            val parts = condition.removePrefix(if (isExists) "exists:" else "not_exists:").split(":", limit = 2)
+            val varName = parts[0].removePrefix("$")
+            val keyword = replaceVars(parts.getOrElse(1) { "" }, ctx.mergedVariables)
+            val varValue = ctx.mergedVariables[varName] ?: ""
+            val contains = varValue.contains(keyword)
+            ctx.emitLine("[if] $condition → \$$varName ${if (contains) "包含" else "不包含"} \"$keyword\"")
+            if (isExists) contains else !contains
         } else {
             val result = evaluateIfCondition(condition, ctx.mergedVariables)
             ctx.emitLine("[if] $condition → ${if (result) "true" else "false"}")
@@ -312,13 +312,14 @@ class IfCommandHandler : SpecialCommandHandler {
             return IfParseResult("str:$op:\$$varName:$value", action)
         }
 
-        // 处理 exists:路径 / not_exists:路径
-        val pathMatch = Regex("""^(not_exists|exists):(\S+)\s+(.+)$""").find(body)
-        if (pathMatch != null) {
-            val condType = pathMatch.groupValues[1]
-            val path = pathMatch.groupValues[2]
-            val action = pathMatch.groupValues[3]
-            return IfParseResult("$condType:$path", action)
+        // 处理 exists:VAR keyword / not_exists:VAR keyword
+        val varMatch = Regex("""^(not_exists|exists):(\S+)\s+(\S+)\s+(.+)$""").find(body)
+        if (varMatch != null) {
+            val condType = varMatch.groupValues[1]
+            val varName = varMatch.groupValues[2]
+            val keyword = varMatch.groupValues[3]
+            val action = varMatch.groupValues[4]
+            return IfParseResult("${condType}:${varName}:${keyword}", action)
         }
 
         return IfParseResult(null, null)
@@ -338,13 +339,23 @@ class IfCommandHandler : SpecialCommandHandler {
                 val op = rest.take(2)  // == or !=
                 val rest2 = rest.drop(2).removePrefix(":")  // 去掉 op 后的分隔冒号
                 val parts = rest2.split(":", limit = 2)
-                val varName = parts[0].removePrefix("$")
+                val varName = parts[0].removePrefix("$").removePrefix("$")
                 val varValue = variables[varName] ?: ""
                 val expected = parts.getOrElse(1) { "" }
                 if (op == "==") varValue == expected else varValue != expected
             }
-            condition.startsWith("exists:") -> true  // 由调用方评估路径条件
-            condition.startsWith("not_exists:") -> false
+            condition.startsWith("exists:") -> {
+                val parts = condition.removePrefix("exists:").split(":", limit = 2)
+                val varValue = variables[parts[0]] ?: ""
+                val keyword = replaceVars(parts.getOrElse(1) { "" }, variables)
+                keyword.isBlank() || varValue.contains(keyword)
+            }
+            condition.startsWith("not_exists:") -> {
+                val parts = condition.removePrefix("not_exists:").split(":", limit = 2)
+                val varValue = variables[parts[0]] ?: ""
+                val keyword = replaceVars(parts.getOrElse(1) { "" }, variables)
+                keyword.isBlank() || !varValue.contains(keyword)
+            }
             else -> true
         }
     }

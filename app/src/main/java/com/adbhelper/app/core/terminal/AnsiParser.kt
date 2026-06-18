@@ -47,8 +47,11 @@ object AnsiParser {
             } else if (raw[i].code in 0x20..0x7E || raw[i].code > 0x7F) {
                 buffer.append(raw[i])
                 i++
+            } else if (raw[i] == '\n') {
+                buffer.append('\n')
+                i++
             } else {
-                i++ // skip control characters
+                i++ // skip other control characters
             }
         }
 

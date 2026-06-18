@@ -244,10 +244,10 @@ class ShellViewModel @Inject constructor(
         }
         val command = when (type) {
             "devices" -> "devices -l"
-            "getprop" -> "shell getprop"
-            "packages" -> "shell pm list packages"
-            "battery" -> "shell dumpsys battery"
             "exit" -> "exit"
+            "packages" -> "shell pm list packages"
+            "当前页面" -> "shell dumpsys activity activities | grep ResumedActivity"
+            "battery" -> "shell dumpsys battery"
             else -> return
         }
         updateCommand(command)

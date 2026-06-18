@@ -2,9 +2,11 @@ package com.adbhelper.app.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -13,19 +15,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.adbhelper.app.R
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Suppress("SpellCheckingInspection")
 @Composable
 fun ScriptHelpDialog(onDismiss: () -> Unit) {
-    AlertDialog(
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("脚本使用指南") },
-        text = {
+        sheetState = sheetState
+    ) {
+        SelectionContainer {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp)
             ) {
-                // 基本语法
+                Text(
+                text = "脚本使用指南",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            // 基本语法
                 HelpSection("基本语法")
                 HelpText("adb基础命令 或者 shell 命令都可执行。")
                 HelpCode(
@@ -134,6 +148,37 @@ fun ScriptHelpDialog(onDismiss: () -> Unit) {
                     "shell pm clear \$target"
                 )
 
+                // Shell 块执行
+                HelpSection("Shell 块执行")
+                HelpText("shell { ... } 将多行 shell 命令合并为一次 adb shell 调用，" +
+                    "按行连接为一段多行脚本提交给 adb shell，共享上下文并支持 if/for 等完整 shell 语法。")
+                HelpCode(
+                    "# 多行脚本一次性发给 adb shell，支持 if/for\n" +
+                    "shell {\n" +
+                    "  cd /sdcard\n" +
+                    "  ls\n" +
+                    "}\n" +
+                    "# 可与 capture 配合\n" +
+                    "capture PATHS=shell {\n" +
+                    "  pm path com.android.chrome\n" +
+                    "}\n" +
+                    "# 使用 \\$ 引用 shell 变量（避免被引擎替换）\n" +
+                    "shell {\n" +
+                    "  for file in /sdcard/*; do\n" +
+                    "    echo \\\$file\n" +
+                    "  done\n" +
+                    "}\n" +
+                    "# if/else 也完全支持\n" +
+                    "shell {\n" +
+                    "  if pm list packages | grep com.android.chrome; then\n" +
+                    "    echo 已安装\n" +
+                    "    pm path com.android.chrome\n" +
+                    "  else\n" +
+                    "    echo 未安装\n" +
+                    "  fi\n" +
+                    "}"
+                )
+
                 // 输出捕获
                 HelpSection("输出捕获 (capture)")
                 HelpText("capture VAR=<命令> 执行命令并捕获输出到变量，后续可用 if/goto/echo 引用。")
@@ -145,20 +190,21 @@ fun ScriptHelpDialog(onDismiss: () -> Unit) {
 
                 // 控制流
                 HelpSection("条件判断 (if)")
-                HelpText("if <条件> <动作> 条件满足时执行动作，否则跳过。支持比较、定义检查、路径检查。")
+                HelpText("if <条件> <动作> 条件满足时执行动作，否则跳过。支持比较、定义检查、变量内容匹配。")
                 HelpText("条件格式：")
                 HelpText("  \$VAR==\"值\"        变量等于指定值")
                 HelpText("  \$VAR!=\"值\"        变量不等于指定值")
                 HelpText("  defined \$VAR       变量已定义且非空")
                 HelpText("  not defined \$VAR   变量未定义或为空")
-                HelpText("  exists:路径         文件存在")
-                HelpText("  not_exists:路径     文件不存在")
+                HelpText("  exists:\$VAR 关键词    变量值包含指定关键词")
+                HelpText("  not_exists:\$VAR 关键词  变量值不包含指定关键词")
                 HelpText("支持的动作：goto、echo、set、capture")
                 HelpCode(
                     "if \$BRAND==\"samsung\" goto samsung\n" +
                     "if defined \$INPUT echo 已输入: \$INPUT\n" +
-                    "if exists:/sdcard/test.txt goto found\n" +
-                    "echo 三星设备\n" +
+                    "capture LIST=shell pm list packages\n" +
+                    "if exists:\$LIST com.android.chrome echo 已安装Chrome\n" +
+                    "echo 非三星设备\n" +
                     "shell settings put global multi_window_enabled 1\n" +
                     ":samsung"
                 )
@@ -208,6 +254,11 @@ fun ScriptHelpDialog(onDismiss: () -> Unit) {
                     "# 5. 算术运算\n" +
                     "set /a SCORE=85+15\n" +
                     "echo 评分: \$SCORE\n" +
+                    "# 6. Shell 块（共享上下文）\n" +
+                    "shell {\n" +
+                    "  echo 完成验证\n" +
+                    "  pm path \$PKG\n" +
+                    "}\n" +
                     ":end\n" +
                     "echo 完成"
                 )
@@ -227,19 +278,15 @@ fun ScriptHelpDialog(onDismiss: () -> Unit) {
                     "set /a VAR=表达式 算术运算\n" +
                     "echo 文本      输出文本\n" +
                     "capture VAR=命令 输出捕获\n" +
+                    "shell { … }    Shell 块（共享上下文）\n" +
                     "if 条件 动作   条件判断\n" +
                     "goto label     跳转到标签\n" +
                     ":label         标签标记\n" +
                     "\$VAR           变量替换"
                 )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.ok))
-            }
+                }
         }
-    )
+    }
 }
 
 @Composable

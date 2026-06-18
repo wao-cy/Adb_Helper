@@ -7,12 +7,16 @@ object ScriptTemplates {
         name = "综合命令演示",
         description = "全面展示脚本引擎所有命令：echo / set / set /p / set /a / capture / if / goto / delay / input / confirm，以及控制流、输出捕获等高级功能",
         category = "custom",
+        variables = mapOf("target" to "com.example.app"),
         commands = listOf(
-            ScriptCommand("# ===== 综合命令演示 — 覆盖所有自定义命令 =====\n# echo、delay、input、confirm、set、set /p、set /a\n# capture、if、goto、:label、!、\$变量引用", ""),
+            ScriptCommand("# ===== 综合命令演示 — 覆盖所有自定义命令 =====\n# echo、delay、input、confirm、set、set /p、set /a\n# capture、if、goto、:label、!、\$变量引用"),
+            ScriptCommand("# 常量引用：编辑页「常量」卡片中定义，脚本中直接使用 \$变量名"),
+            ScriptCommand("echo 目标应用: \$target"),
+            ScriptCommand("shell pm path \$target"),
 
-            ScriptCommand("echo ========== 1. 基本命令 ==========", ""),
-            ScriptCommand("shell getprop ro.product.model", "设备型号"),
-            ScriptCommand("shell getprop ro.build.version.release", "系统版本"),
+            ScriptCommand("echo ========== 1. 基本命令 =========="),
+            ScriptCommand("shell getprop ro.product.model"),
+            ScriptCommand("shell getprop ro.build.version.release"),
 
             ScriptCommand("capture BRAND=shell getprop ro.product.brand", "捕获输出到变量"),
             ScriptCommand("echo 设备品牌: \$BRAND", "引用捕获的变量"),
@@ -84,6 +88,12 @@ object ScriptTemplates {
             ScriptCommand("shell pm install \$APK_PATH", "安装APK"),
             ScriptCommand("delay 1", ""),
 
+            ScriptCommand("shell {", "Shell 块：共享 shell 上下文"),
+            ScriptCommand("  echo 验证安装完成", ""),
+            ScriptCommand("  pm path \$PKG", "验证安装路径"),
+            ScriptCommand("  dumpsys package \$PKG | grep versionName", "获取版本号"),
+            ScriptCommand("}", ""),
+
             ScriptCommand(":end", "标签：结束"),
             ScriptCommand("echo ========== 演示结束 ==========", ""),
             ScriptCommand("echo 本脚本演示了所有命令的用法。", ""),
@@ -92,5 +102,19 @@ object ScriptTemplates {
         )
     )
 
-    val PREDEFINED_SCRIPTS = listOf(COMPREHENSIVE_DEMO_SCRIPT)
+    val BATCH_UNINSTALL_3RD = AdbScript(
+        id = "batch_uninstall_3rd",
+        name = "批量卸载第三方应用",
+        description = "列出所有第三方应用并逐个卸载（危险操作，请谨慎使用）",
+        category = "optimize",
+        commands = listOf(
+            ScriptCommand("echo ========== 批量卸载第三方应用 =========="),
+            ScriptCommand("echo 注意：此操作将逐个卸载所有第三方应用，不可撤销！"),
+            ScriptCommand("confirm 确认要开始批量卸载所有第三方应用吗？", "确认卸载"),
+            ScriptCommand("shell pm list packages -3 | sed 's/package://' | while read pkg; do pm uninstall --user 0 \"\$pkg\"; done", "批量卸载"),
+            ScriptCommand("echo ========== 批量卸载完成 =========="),
+        )
+    )
+
+    val PREDEFINED_SCRIPTS = listOf(COMPREHENSIVE_DEMO_SCRIPT, BATCH_UNINSTALL_3RD)
 }

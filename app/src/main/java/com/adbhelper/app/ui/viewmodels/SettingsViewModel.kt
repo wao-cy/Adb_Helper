@@ -21,6 +21,7 @@ data class SettingsUiState(
     val cacheSize: Long = 0L,
     val defaultTab: Int = 0,
     val fetchIcons: Boolean = true,
+    val resolveNames: Boolean = true,
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -48,7 +49,8 @@ class SettingsViewModel @Inject constructor(
                 keepScreenOn = settingsRepository.keepScreenOnFlow.value,
                 localSavePath = settingsRepository.localSavePathFlow.value,
                 defaultTab = settingsRepository.defaultTabFlow.value,
-                fetchIcons = settingsRepository.fetchIconsFlow.value
+                fetchIcons = settingsRepository.fetchIconsFlow.value,
+                resolveNames = settingsRepository.resolveNamesFlow.value
             )
         }
     }
@@ -85,6 +87,13 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(fetchIcons = enabled)
         viewModelScope.launch {
             settingsRepository.updateFetchIcons(enabled)
+        }
+    }
+
+    fun updateResolveNames(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(resolveNames = enabled)
+        viewModelScope.launch {
+            settingsRepository.updateResolveNames(enabled)
         }
     }
 

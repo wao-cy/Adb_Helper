@@ -104,28 +104,27 @@ class ScriptEditorViewModel @Inject constructor(
 
     private fun commandsToText(commands: List<ScriptCommand>): String {
         return commands.joinToString("\n") { cmd ->
-            buildString {
-                if (cmd.description.isNotBlank()) {
-                    appendLine("# ${cmd.description}")
+            if (cmd.command.startsWith("#")) {
+                cmd.command
+            } else {
+                buildString {
+                    if (cmd.ignoreError) append("! ")
+                    append(cmd.command)
                 }
-                if (cmd.ignoreError) append("! ")
-                append(cmd.command)
             }
         }
     }
 
     fun parseTextToCommands(text: String): List<ScriptCommand> {
         val commands = mutableListOf<ScriptCommand>()
-        var pendingDescription: String? = null
 
         for (line in text.lines()) {
             val trimmed = line.trim()
-            if (trimmed.isBlank()) {
-                pendingDescription = null
-                continue
-            }
+            if (trimmed.isBlank()) continue
             if (trimmed.startsWith("#")) {
-                pendingDescription = trimmed.removePrefix("#").trim()
+                commands.add(
+                    ScriptCommand(command = "# ${trimmed.removePrefix("#").trim()}")
+                )
                 continue
             }
 
@@ -133,13 +132,8 @@ class ScriptEditorViewModel @Inject constructor(
             val commandStr = if (ignoreError) trimmed.removePrefix("! ").trim() else trimmed
 
             commands.add(
-                ScriptCommand(
-                    command = commandStr,
-                    description = pendingDescription ?: "",
-                    ignoreError = ignoreError
-                )
+                ScriptCommand(command = commandStr, ignoreError = ignoreError)
             )
-            pendingDescription = null
         }
         return commands
     }
